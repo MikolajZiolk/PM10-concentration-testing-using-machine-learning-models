@@ -41,7 +41,7 @@ execute:
   error: false
   cache: false
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 ## Pakiety
 
@@ -310,10 +310,7 @@ cl <- makePSOCKcluster(cores)
 registerDoParallel(cl)
 
 time <- Sys.time()
-
-results_time <-
-  system.time(
-    tune_result <-
+   
       basic  |>        # 1:4 bo tylko wariant b, t został dla przykładu
       workflow_map(
         "tune_race_anova",
@@ -324,13 +321,15 @@ results_time <-
         verbose = TRUE,
         metrics = metric_set(rmse, rsq, mae)
       )
-  )
+
+results_time <-
+  system.time(tune_result)
 
 stopCluster(cl)
 
 Sys.time() - time
 
-save(tune_result, file = "tune_result.Rdata")
+save(tune_result, file = "./tune_result.Rdata")
 ```
 
 
