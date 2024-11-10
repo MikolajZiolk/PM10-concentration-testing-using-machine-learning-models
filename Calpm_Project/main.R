@@ -5,8 +5,8 @@
 # List of required packages !!!! please add your libraries to the vector !!!!
 required_packages <- c("tidyverse", "data.table", "dplyr",
                        "ggpubr", "ranger", "modeldata", "tidymodels",
-                       "rpart.plot", "readr","vip", "ggthemes", "parsnip", "GGally",
-                       "skimr")  
+                       "rpart.plot", "readr","vip", "ggthemes", 
+                       "parsnip", "GGally", "skimr")  
 
 # Function to run packages and install missing ones
 install_if_missing <- function(packages) {
@@ -19,7 +19,7 @@ install_if_missing <- function(packages) {
 
 install_if_missing(required_packages)
 tidymodels_prefer()
-
+set.seed(123)
 #set working directiory to the one where document exists
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
