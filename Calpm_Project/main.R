@@ -42,16 +42,68 @@ wind_set_dir <- function(kat) {
 ops <- ops |> 
   mutate(wd = wind_set_dir(wd))
 
-##Hellwig method implementation
-
-
 #Preparing recipe to train models
 
 split <- initial_split(data = ops, prop = 3/4, strata = "grimm_pm10")
 train_data <- training(split)
 test_data <- testing(split)
 
+# Hellwig method implementation ------------------------------------------------
 
+# Calculating number of all possible combinations of variables (excluding date and second pm10 measure)
+(comb_count <- (2^length(setdiff(names(ops %>% select(-c(date, ops_pm10))), "grimm_pm10"))) - 1)
+
+# Defining the hellwig() function
+hellwig <- function(y, x, method = "pearson") {
+  requireNamespace("utils")
+  x <- x[sapply(x, is.numeric)]
+  x <- as.data.frame(x)
+  
+  # Calculate correlation matrix
+  cm <- stats::cor(x, method = method)
+  cd <- stats::cor(x, y, method = method)
+  
+  k <- sapply(seq(2, ncol(x)), function(i) utils::combn(ncol(x), i, simplify = FALSE))
+  k <- do.call("c", k)
+  
+  hfun <- function(v) {
+    sapply(v, function(i) cd[i]^2 / sum(abs(cm[v, i])))
+  }
+  
+  all_combinations <- lapply(k, function(comb) {
+    score <- sum(hfun(comb))
+    list(combination = paste(names(x)[comb], collapse = "-"), score = score)
+  })
+  
+  all_combinations_df <- data.frame(
+    combination = sapply(all_combinations, `[[`, "combination"),
+    score = sapply(all_combinations, `[[`, "score"),
+    stringsAsFactors = FALSE
+  )
+  
+  return(all_combinations_df)
+}
+
+# Defining the target variable and the predictor set
+target_var <- c("grimm_pm10")
+predictor_set <- setdiff(names(ops %>% select(-c(date, ops_pm10))), target_var)
+predictor_data <- ops[, predictor_set]
+target_data <- ops[[target_var]]
+
+# Calculating estimated information capacity factor for each possible model
+all_models <- hellwig(target_data, predictor_data, method = "pearson")
+
+# Selection of variables in three best potential models
+best_variables <- unlist(unique(flatten(strsplit(all_models[1:3,]$combination, '-')))) 
+
+# Selection of rejected variables
+rejected_predictors <- setdiff(names(ops %>% select(-c(date, grimm_pm10, ops_pm10))), best_variables)
+
+# Best model selection
+best_model <- all_models |> slice(which.max(score))
+best_model
+
+# Initial recipe ---------------------------------------------------------------
 
 ops_rec <- recipe(grimm_pm10  ~., data = train_data) |> 
   update_role(ops_pm10, new_role = "ID") |> 
