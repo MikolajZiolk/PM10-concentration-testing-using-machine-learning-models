@@ -20,11 +20,15 @@ install_if_missing <- function(packages) {
 install_if_missing(required_packages)
 tidymodels_prefer()
 set.seed(123)
+
 #set working directiory to the one where document exists
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 #don't modify the ops file as this is our input we should always derive from
-load("ops.RData") ; ops <- ops |> na.omit()
+load("ops.RData") ; ops <-
+  ops |>
+  na.omit() |> 
+  select(-ops_pm10) #external requirement to never use ops_pm10 
 #ops |> glimpse()
 
 
@@ -51,7 +55,7 @@ test_data <- testing(split)
 # Hellwig method implementation ------------------------------------------------
 
 # Calculating number of all possible combinations of variables (excluding date and second pm10 measure)
-(comb_count <- (2^length(setdiff(names(ops %>% select(-c(date, ops_pm10))), "grimm_pm10"))) - 1)
+(comb_count <- (2^length(setdiff(names(ops %>% select(-c(date))), "grimm_pm10"))) - 1)
 
 # Defining the hellwig() function
 hellwig <- function(y, x, method = "pearson") {
@@ -86,7 +90,7 @@ hellwig <- function(y, x, method = "pearson") {
 
 # Defining the target variable and the predictor set
 target_var <- c("grimm_pm10")
-predictor_set <- setdiff(names(ops %>% select(-c(date, ops_pm10))), target_var)
+predictor_set <- setdiff(names(ops %>% select(-c(date))), target_var)
 predictor_data <- ops[, predictor_set]
 target_data <- ops[[target_var]]
 
@@ -97,7 +101,7 @@ all_models <- hellwig(target_data, predictor_data, method = "pearson")
 best_variables <- unlist(unique(flatten(strsplit(all_models[1:3,]$combination, '-')))) 
 
 # Selection of rejected variables
-rejected_predictors <- setdiff(names(ops %>% select(-c(date, grimm_pm10, ops_pm10))), best_variables)
+rejected_predictors <- setdiff(names(ops %>% select(-c(date, grimm_pm10))), best_variables)
 
 # Best model selection
 best_model <- all_models |> slice(which.max(score))
@@ -106,7 +110,6 @@ best_model
 # Initial recipe ---------------------------------------------------------------
 
 ops_rec <- recipe(grimm_pm10  ~., data = train_data) |> 
-  update_role(ops_pm10, new_role = "ID") |> 
   step_time(date, features = c("hour")) |>
   step_rm(date) 
 
