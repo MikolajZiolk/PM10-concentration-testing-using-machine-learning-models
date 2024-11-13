@@ -27,8 +27,6 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 load("ops.RData") ; ops <- ops |> na.omit()
 #ops |> glimpse()
 
-
-
 ##data preparation
 #transforming wind to quality variable
 wind_set_dir <- function(kat) {
@@ -71,7 +69,15 @@ ops_rec |> prep() |>  bake(train_data) |> glimpse()
 
 
 
-## Support Vector machine model
+## Support Vector machine model , SVM
+#cel: znalezienie hiperpłaszczyzny maksymalnie separującej dane, co minimalizuje błędy predykcji.
+#model SVM
+svm_spec <- svm_rbf(
+  mode= "regression",
+  cost = tune(), # koszt
+  rbf_sigma = tune() # parametr jądra RBF
+) |> 
+  set_engine("kernlab")
 
 
 
