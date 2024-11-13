@@ -74,11 +74,19 @@ ops_rec |> prep() |>  bake(train_data) |> glimpse()
 #model SVM
 svm_spec <- svm_rbf(
   mode= "regression",
-  cost = tune(), # koszt
-  rbf_sigma = tune() # parametr jądra RBF
+  cost = tune(), # koszt, uniknięcie nadmiernegi dopasowania
+  rbf_sigma = tune() # parametr jądra radialnego RBF
 ) |> 
   set_engine("kernlab")
 
+#SVM recipe
+SVM_rec <- recipe(grimm_pm10 ~ ., data = train_data) |> 
+  update_role(ops_pm10, new_role = "ID") |>
+  step_time(date, features = c("hour")) |> 
+  step_rm(date) |> # Usunięcie daty
+  step_dummy(all_nominal()) |> # Dummies dla danych kategorialnych
+  step_zv(all_predictors()) |> # Usunięcie predyktorów o zerowej wariancji
+  step_normalize(all_predictors()) # Normalizacja
 
 
 ## XGBoost model
