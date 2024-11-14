@@ -127,8 +127,30 @@ ops_rec |> prep() |>  bake(train_data) |> glimpse()
 
 
 ## Random Forest model
+rf_mod <- 
+  rand_forest() |> 
+  set_engine("ranger") |> 
+  set_mode("regression")
 
+rf_wf <- 
+  workflow() |> 
+  add_model(rf_mod) |> 
+  add_recipe(ops_rec)
 
+rf_fit<- 
+  rf_wf |> 
+  fit(train_data)
+
+rf_fit<- 
+  rf_wf |> 
+  fit(train_data)
+
+rf_predictions <- predict(rf_fit, new_data = test_data)
+
+rf_results <- test_data |> 
+  mutate(
+    .pred = xgboost_predictions$.pred) |> 
+  select(date, grimm_pm10, .pred)
 
 ## Support Vector machine model
 
