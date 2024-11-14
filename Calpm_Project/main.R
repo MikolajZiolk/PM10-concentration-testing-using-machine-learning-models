@@ -6,7 +6,8 @@
 required_packages <- c("tidyverse", "data.table", "dplyr",
                        "ggpubr", "ranger", "modeldata", "tidymodels",
                        "rpart.plot", "readr","vip", "ggthemes", 
-                       "parsnip", "GGally", "skimr", "xgboost")  
+                       "parsnip", "GGally", "skimr", "xgboost",
+                       "doParallel")  
 
 # Function to run packages and install missing ones
 install_if_missing <- function(packages) {
@@ -116,7 +117,7 @@ ops_rec <- recipe(grimm_pm10  ~., data = train_data) |>
   step_zv(all_predictors())
 
 
-ops_rec |> prep() |>  bake(train_data) |> glimpse()
+ops_rec |> prep() |>  bake(train_data) |> glimpse() 
 
 
 
@@ -132,13 +133,18 @@ ops_rec |> prep() |>  bake(train_data) |> glimpse()
 
 
 
-## XGBoost model
+## XGBoost model ---------------------------------------------------------------
+
+
+
+# It is better to load stored data, computation takes too long
+load("xgboost_data.RData")
 
 # XGBoost model specification
 xgboost_model <- 
   boost_tree(
     mode = "regression",
-    trees = 1000,
+    trees = 200,
     min_n = tune(),
     tree_depth = tune(),
     learn_rate = tune(),
@@ -154,7 +160,7 @@ xgboost_grid <-
     tree_depth(),
     learn_rate(),
     loss_reduction(),
-    levels = 3)
+    levels = 10)
 
 
 # Workflow
@@ -162,7 +168,6 @@ xgboost_wf <-
   workflow() |> 
   add_model(xgboost_model) |> 
   add_recipe(ops_rec)
-
 
 # Metrics
 xgboost_metrics <- 
@@ -173,8 +178,12 @@ xgboost_metrics <-
 
 # Cross validation 
 xgboost_folds <- 
-  vfold_cv(train_data, v=5)
+  vfold_cv(train_data, v=10, repeats=5)
 
+# Parallel computing 
+cores = detectCores(logical = FALSE) - 1
+cl = makeCluster(cores)
+registerDoParallel(cl)
 
 # Hyperparameter tuning
 xgboost_tuned <- 
@@ -186,13 +195,15 @@ xgboost_tuned <-
   control = control_grid(verbose = TRUE)
 )
 
+stopCluster(cl)
+
 # Selecting best parameters
 xgboost_tuned |> 
-  show_best(metric = "rmse") |> 
+  show_best(metric = "rsq") |> 
   knitr::kable()
 
 xgboost_best_params <- xgboost_tuned |> 
-  select_best(metric = "rmse")
+  select_best(metric = "rsq")
 
 # Final Model
 xgboost_model_final <- xgboost_model |>  
@@ -208,13 +219,17 @@ xgboost_final_wf <- finalize_workflow(
 xgboost_final_fit <- fit(xgboost_final_wf, data = train_data)
 
 # Predictions
-xgboost_predictions <- predict(final_fit, new_data = test_data)
+xgboost_predictions <- predict(xgboost_final_fit, new_data = test_data)
 
 xgboost_results <- test_data |> 
   mutate(
     .pred = xgboost_predictions$.pred) |> 
   select(date, grimm_pm10, .pred)
 
+# Showing metrics of predictions 
+xgboost_metrics(xgboost_results, truth = grimm_pm10, estimate = .pred)
+
+# Plot
 ggplot(xgboost_results, aes(x = grimm_pm10, y = .pred)) +
   geom_point(alpha = 0.5) +
   geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
@@ -224,6 +239,7 @@ ggplot(xgboost_results, aes(x = grimm_pm10, y = .pred)) +
     y = "Predictions"
   ) + theme_bw()
 
+# Saving data
 save(xgboost_model,
      xgboost_grid,
      xgboost_wf,
