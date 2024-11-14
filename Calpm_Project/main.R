@@ -147,6 +147,8 @@ SVM_rec <- recipe(grimm_pm10 ~ ., data = train_data) |>
   step_zv(all_predictors()) |> # Usunięcie predyktorów o zerowej wariancji
   step_normalize(all_predictors()) # Normalizacja
 
+###dad
+
 
 ## XGBoost model ---------------------------------------------------------------
 
