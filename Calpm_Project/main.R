@@ -22,15 +22,24 @@ install_if_missing(required_packages)
 tidymodels_prefer()
 set.seed(123)
 
-#set working directiory to the one where document exists
+#set working directory to the one where document exists
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 #don't modify the ops file as this is our input we should always derive from
 load("ops.RData") ; ops <-
   ops |>
   na.omit() |> 
-  select(-ops_pm10) #external requirement to never use ops_pm10 
-#ops |> glimpse()
+  select(-ops_pm10, -pres_sea) #external requirement to never use ops_pm10
+
+#validation data (different measurement method)
+
+load("data_test.RData")
+
+ops_validation <- left_join(ops_data, bam, by = "date")|> 
+  select(!grimm_pm10, -(poj_h:hour)) |> 
+  relocate(bam_pm10, .before = "n_0044") |> 
+  rename(grimm_pm10 = bam_pm10)
+
 
 
 
@@ -107,6 +116,10 @@ rejected_predictors <- setdiff(names(ops %>% select(-c(date, grimm_pm10))), best
 # Best model selection
 best_model <- all_models |> slice(which.max(score))
 best_model
+
+#Predictors invastigation (GGally)---------------------------------------
+
+
 
 # Initial recipe ---------------------------------------------------------------
 
