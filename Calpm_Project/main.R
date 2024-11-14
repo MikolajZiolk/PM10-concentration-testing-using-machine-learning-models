@@ -114,7 +114,8 @@ ops_rec <- recipe(grimm_pm10  ~., data = train_data) |>
   step_time(date, features = c("hour")) |>
   step_rm(date) |> 
   step_dummy(all_nominal_predictors()) |> # wd needs to be numeric 
-  step_zv(all_predictors())
+  step_zv(all_predictors()) |> 
+  step_normalize(all_predictors()) # Normalizacja
 
 
 ops_rec |> prep() |>  bake(train_data) |> glimpse() 
