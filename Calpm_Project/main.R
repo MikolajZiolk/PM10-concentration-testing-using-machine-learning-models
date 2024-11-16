@@ -7,7 +7,7 @@ required_packages <- c("tidyverse", "data.table", "dplyr",
                        "ggpubr", "ranger", "modeldata", "tidymodels",
                        "rpart.plot", "readr","vip", "ggthemes", 
                        "parsnip", "GGally", "skimr", "xgboost",
-                       "doParallel")  
+                       "doParallel", "kernlab")  
 
 # Function to run packages and install missing ones
 install_if_missing <- function(packages) {
@@ -148,9 +148,38 @@ SVM_wf <-
 
 # Tuning grid, SVM
 SVM_grid <- grid_regular(
-  cost(),
-  rbf_sigma(), 
-  levels = 10)
+  cost(), # zakres kosztów np: cost(range = c(-5, 5)),
+  rbf_sigma(), # Zakres sigma dla jądra RBF np  rbf_sigma(range = c(-5, 5)),
+  levels = 5)
+
+# Metrics
+SVM_metrics <- 
+  yardstick::metric_set(
+    rsq,
+    mae,
+    rmse)
+
+# 5 Cross validation 
+set.seed(123)
+SVM_folds <- vfold_cv(
+  train_data, 
+  v = 5, 
+  repeats = 5)
+
+# Parallel computing 
+cores = detectCores(logical = FALSE) - 1
+cl = makeCluster(cores)
+registerDoParallel(cl)
+
+# Hyperparameter tuning
+SVM_tune_rs <- tune_grid(
+  object = SVM_wf,
+  resamples = SVM_folds,
+  grid = SVM_grid,
+  metrics = SVM_metrics,
+  control = control_grid(verbose = TRUE)
+)
+
 
 ## XGBoost model ---------------------------------------------------------------
 
