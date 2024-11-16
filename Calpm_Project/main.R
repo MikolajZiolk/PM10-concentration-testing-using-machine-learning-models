@@ -200,6 +200,19 @@ SVM_tune|>
 SVM_best_params <- SVM_tune |> 
   select_best(metric = "rsq")
 
+# Final Model
+SVM_model_final <- SVM_r_mod |>  
+  finalize_model(SVM_best_params)
+
+SVM_final_wf <- finalize_workflow(
+  SVM_wf,
+  SVM_best_params
+)
+
+#Fitting with train data
+svm_fit <- SVM_final_wf |>
+  fit(data = train_data)
+#
 
 ## XGBoost model ---------------------------------------------------------------
 
