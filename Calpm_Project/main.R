@@ -159,11 +159,11 @@ SVM_metrics <-
     mae,
     rmse)
 
-# 5 Cross validation 
+# 10 Cross validation 
 set.seed(123)
 SVM_folds <- vfold_cv(
   train_data, 
-  v = 5, 
+  v = 10, 
   repeats = 5)
 
 # Parallel computing 
@@ -172,13 +172,33 @@ cl = makeCluster(cores)
 registerDoParallel(cl)
 
 # Hyperparameter tuning
-SVM_tune_rs <- tune_grid(
+SVM_tune <- tune_grid(
   object = SVM_wf,
   resamples = SVM_folds,
   grid = SVM_grid,
   metrics = SVM_metrics,
   control = control_grid(verbose = TRUE)
 )
+
+stopCluster(cl)
+
+#Showing the best candidates for model
+top_SVM_models <- 
+  SVM_tune |> 
+  show_best(metric="rsq", n = Inf) |> 
+  arrange(cost) |> 
+  mutate(mean = mean |> round(x = _, digits = 3))
+
+top_SVM_models |> gt::gt()
+
+#5 the best models
+SVM_tune|> 
+  show_best(metric="rsq") |> 
+  knitr::kable()
+
+#The best params
+SVM_best_params <- SVM_tune |> 
+  select_best(metric = "rsq")
 
 
 ## XGBoost model ---------------------------------------------------------------
@@ -252,6 +272,7 @@ xgboost_tuned |>
 
 xgboost_best_params <- xgboost_tuned |> 
   select_best(metric = "rsq")
+
 
 # Final Model
 xgboost_model_final <- xgboost_model |>  
