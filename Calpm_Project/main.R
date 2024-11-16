@@ -210,9 +210,31 @@ SVM_final_wf <- finalize_workflow(
 )
 
 #Fitting with train data
-svm_fit <- SVM_final_wf |>
+SVM_fit <- SVM_final_wf |>
   fit(data = train_data)
-#
+
+# Predictions
+SVM_predictions <- predict(SVM_fit, new_data = test_data)
+
+SVM_results <- test_data |> 
+  mutate(
+    .pred = SVM_predictions$.pred) |> 
+  select(date, grimm_pm10, .pred)
+
+# Showing metrics of predictions 
+SVM_metrics(SVM_results, truth = grimm_pm10, estimate = .pred)
+#rsq=0.971, wskazuje na bardzo dobre odwzorowanie danych
+
+# Plot
+ggplot(SVM_results, aes(x = grimm_pm10, y = .pred)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Comparison of Actual vs. Predicted Values",
+    x = "Actual values (grimm_pm10)",
+    y = "Predictions"
+  ) + theme_bw()
+
 
 ## XGBoost model ---------------------------------------------------------------
 
