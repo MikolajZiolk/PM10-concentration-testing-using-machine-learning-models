@@ -140,30 +140,80 @@ ops_rec |> prep() |>  bake(train_data) |> glimpse()
 
 
 ## Random Forest model
-rf_mod <- 
-  rand_forest() |> 
+# loading heavy to compute data-sets and final metrics 
+load("rf_data.RData")
+
+# setting up grid and model
+
+rf_grid <- grid_regular(mtry(c(2,19)), 
+                        trees(c(400,1500)),
+                        levels = 5)
+
+rf_tune_spec <- 
+  rand_forest(
+    mtry = tune(), 
+    trees = tune(),
+    min_n = 2) |> 
   set_engine("ranger") |> 
   set_mode("regression")
 
 rf_wf <- 
   workflow() |> 
-  add_model(rf_mod) |> 
+  add_model(rf_tune_spec) |> 
   add_recipe(ops_rec)
 
-rf_fit<- 
-  rf_wf |> 
-  fit(train_data)
+#turning on multicore processing for expensive workload
+cl <- makeCluster(parallel::detectCores())
+registerDoParallel(cl)
 
-rf_fit<- 
-  rf_wf |> 
-  fit(train_data)
+rf_fit <-
+  rf_wf |>
+  tune_grid(
+    resamples = vfold_cv(train_data, v=10, repeats=5),
+    grid = rf_grid,
+    control = control_grid(verbose = TRUE)
+  )
 
-rf_predictions <- predict(rf_fit, new_data = test_data)
+#turning off multicore processing
+stopCluster(cl)
+registerDoSEQ()
+
+
+rf_best_params <- rf_fit |> 
+  select_best(metric = "rsq")
+
+rf_final_wf <- finalize_workflow(
+  rf_wf,
+  rf_best_params
+)
+
+rf_final_fit <- fit(rf_final_wf, data = train_data)
+
+rf_predictions <- predict(rf_final_fit, new_data = test_data)
 
 rf_results <- test_data |> 
   mutate(
-    .pred = xgboost_predictions$.pred) |> 
+    .pred = rf_predictions$.pred) |> 
   select(date, grimm_pm10, .pred)
+
+rf_final_metrics <- rf_predictions |> 
+  bind_cols(test_data) |> 
+  metrics(truth = grimm_pm10, estimate = .pred)
+
+
+ggplot(rf_results, aes(x = grimm_pm10, y = .pred)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Comparison of Actual vs. Predicted Values",
+    x = "Actual values (grimm_pm10)",
+    y = "Predictions"
+  ) + theme_bw()
+
+save(rf_fit,
+     rf_final_fit,
+     rf_final_metrics,
+     file = "rf_data.RData")
 
 ## Support Vector machine model
 
