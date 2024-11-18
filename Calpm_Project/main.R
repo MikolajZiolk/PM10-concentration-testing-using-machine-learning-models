@@ -43,8 +43,8 @@ ops_validation <- left_join(ops_data, bam, by = "date")|>
 
 
 
-##data preparation
-#transforming wind to quality variable
+# Data preparation -------------------------------------------------------------
+# Transforming wind to qualitative variable
 wind_set_dir <- function(kat) {
   directions <- c("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", 
                   "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
@@ -56,16 +56,22 @@ wind_set_dir <- function(kat) {
 ops <- ops |> 
   mutate(wd = wind_set_dir(wd))
 
-#Preparing recipe to train models
-
+# Data Split -------------------------------------------------------------------
+set.seed(123)
 split <- initial_split(data = ops, prop = 3/4, strata = "grimm_pm10")
 train_data <- training(split)
 test_data <- testing(split)
+val_set <- vfold_cv(data = train_data, v = 10, strata = "grimm_pm10")
+
+train_data |> dim()
+test_data |> dim()
+val_set |> dim()
 
 # Hellwig method implementation ------------------------------------------------
+load(file = "hlwg_data.RData")
 
 # Calculating number of all possible combinations of variables (excluding date and second pm10 measure)
-(comb_count <- (2^length(setdiff(names(ops %>% select(-c(date))), "grimm_pm10"))) - 1)
+(hlwg_comb_count <- (2^length(setdiff(names(ops %>% select(-c(date))), "grimm_pm10"))) - 1)
 
 # Defining the hellwig() function
 hellwig <- function(y, x, method = "pearson") {
@@ -99,25 +105,31 @@ hellwig <- function(y, x, method = "pearson") {
 }
 
 # Defining the target variable and the predictor set
-target_var <- c("grimm_pm10")
-predictor_set <- setdiff(names(ops %>% select(-c(date))), target_var)
-predictor_data <- ops[, predictor_set]
-target_data <- ops[[target_var]]
+hlwg_target_var <- c("grimm_pm10")
+hlwg_predictor_set <- setdiff(names(ops %>% select(-c(date))), hlwg_target_var)
+hlwg_predictor_data <- ops[, hlwg_predictor_set]
+hlwg_target_data <- ops[[hlwg_target_var]]
 
 # Calculating estimated information capacity factor for each possible model
-all_models <- hellwig(target_data, predictor_data, method = "pearson")
+hlwg_all_models <- hellwig(hlwg_target_data, hlwg_predictor_data, method = "pearson")
 
 # Selection of variables in three best potential models
-best_variables <- unlist(unique(flatten(strsplit(all_models[1:3,]$combination, '-')))) 
+hlwg_best_variables <- unlist(unique(flatten(strsplit(hlwg_all_models[1:3,]$combination, '-')))) 
 
 # Selection of rejected variables
-rejected_predictors <- setdiff(names(ops %>% select(-c(date, grimm_pm10))), best_variables)
+hlwg_rejected_predictors <- setdiff(names(ops %>% select(-c(date, grimm_pm10))), hlwg_best_variables)
 
 # Best model selection
-best_model <- all_models |> slice(which.max(score))
-best_model
+hlwg_best_model <- hlwg_all_models |> slice(which.max(score))
+hlwg_best_model
 
-#Predictors invastigation (GGally)---------------------------------------
+# hlg_vars <- ls()[grep("hellwig|hlwg", ls())]
+# for (var in hlg_vars) {
+#   assign(var, get(var))
+# }
+# save(list = hlg_vars, file = "hlwg_data.RData")
+
+# Predictors investigation (GGally) --------------------------------------------
 
 
 
@@ -130,16 +142,105 @@ ops_rec <- recipe(grimm_pm10  ~., data = train_data) |>
   step_zv(all_predictors()) |> 
   step_normalize(all_predictors()) # Normalizacja
 
-
 ops_rec |> prep() |>  bake(train_data) |> glimpse() 
 
+# GLM --------------------------------------------------------------------------
+load(file = "glm_data.RData")
+
+# Defining formula based on Hellwig's algorithm result
+glm_hellwig_vars <- strsplit(c(hlwg_best_model$combination, "date"), "-")
+glm_formula <- paste("grimm_pm10 ~", paste(paste(unlist(glm_hellwig_vars)), collapse = " + "))
+
+# Defining GLM Recipe
+glm_rec <-
+  recipe(as.formula(glm_formula), data = train_data) |> 
+  update_role(grimm_pm10, new_role = "outcome") |>
+  step_time(date, features = c("hour")) |>
+  step_rm(date) |> 
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors()) |> 
+  step_interact(terms = ~ starts_with("n_"):starts_with("n_")) |>  
+  step_poly(unlist(glm_hellwig_vars[1]), degree = 2, skip = FALSE) |> 
+  step_normalize(all_predictors()) |>
+  check_missing()
+  
+prepped_glm_rec <- prep(glm_rec)
+juice(prepped_glm_rec) |> glimpse()
+
+# Defining GLM Model
+glm_mod <- 
+  # linear_reg(penalty = tune(), mixture = 1) |> # For Lasso Regression
+  linear_reg(penalty = tune(), mixture = tune()) |>
+  set_engine(engine = "glmnet", num.threads = parallel::detectCores() - 1) |> 
+  set_mode("regression")
+
+# Defining GLM Workflow
+glm_work <- 
+  workflow() |> 
+  add_model(glm_mod) |> 
+  add_recipe(glm_rec)
+
+# Setting up GLM grid
+set.seed(123)
+glm_grid <- grid_random(penalty(range = c(-5, 1)), mixture(range = c(0.7, 1)), size = 200)
+# glm_grid <- grid_random(penalty(range = c(-5, 1)), size = 200) # For Lasso Regression
+
+# GLM grid tuning
+glm_res <- try(
+  tune_grid(
+    glm_work,
+    resamples = val_set,
+    grid = glm_grid,
+    control = control_grid(save_pred = TRUE, allow_par = TRUE),
+    metrics = metric_set(rsq, mae)
+  )
+)
+
+# Assesment of best hyperparameter sets
+glm_best <- select_best(glm_res, metric = "rsq")
+
+# GLM: Show hyperparameter fitting results -------------------------------------
+# Show 95th hyperparameter quantile
+glm_res |>
+  show_best(metric = "rsq", n = Inf) |>
+  arrange(desc(mean)) |> 
+  filter(mean > quantile(mean, 0.95))
+
+# Best hyperparameter result
+glm_res |>
+  show_best(metric = "rsq", n = Inf) |>
+  filter(.config == glm_best$.config)
+
+# GLM: Final GLM Fitting -------------------------------------------------------
+# Final GLM Workflow
+glm_final_work <- finalize_workflow(glm_work, glm_best)
+
+# Final GLM Fit
+glm_fit <- 
+  glm_final_work |> 
+  fit(data = train_data)
+
+# Final Model Fit Coefficients
+glmnet_model <- extract_fit_parsnip(glm_fit)
+coef(glmnet_model$fit, s = min(glmnet_model$fit$lambda))
+
+# GLM: GLM Metric Test ---------------------------------------------------------
+# Ex-Post Analysis
+glm_test_metrics <- glm_fit |> 
+  predict(test_data) |> 
+  bind_cols(test_data) |> 
+  metrics(truth = grimm_pm10, estimate = .pred)
+
+glm_test_metrics # Highest R-Squared = 0.961 (achieved on data split seed = 123)
+
+# glinm_vars <- ls()[grep("glm", ls())]
+# for (var in glinm_vars) {
+#   assign(var, get(var))
+# }
+# save(list = glinm_vars, file = "glm_data.RData")
 
 
-## Linear regression model
-
-
-
-## Random Forest model
+## Random Forest model ---------------------------------------------------------
 # loading heavy to compute data-sets and final metrics 
 load("rf_data.RData")
 
@@ -215,7 +316,7 @@ save(rf_fit,
      rf_final_metrics,
      file = "rf_data.RData")
 
-## Support Vector machine model
+## Support Vector machine model ------------------------------------------------
 
 
 
