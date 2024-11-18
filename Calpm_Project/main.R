@@ -57,11 +57,11 @@ ops <- ops |>
   mutate(wd = wind_set_dir(wd))
 
 # Data Split -------------------------------------------------------------------
-set.seed(128)
+set.seed(123)
 split <- initial_split(data = ops, prop = 3/4, strata = "grimm_pm10")
 train_data <- training(split)
 test_data <- testing(split)
-val_set <- vfold_cv(data = train_data, v = 5, strata = "grimm_pm10")
+val_set <- vfold_cv(data = train_data, v = 10, strata = "grimm_pm10")
 
 train_data |> dim()
 test_data |> dim()
@@ -122,8 +122,12 @@ hlwg_rejected_predictors <- setdiff(names(ops %>% select(-c(date, grimm_pm10))),
 # Best model selection
 hlwg_best_model <- hlwg_all_models |> slice(which.max(score))
 hlwg_best_model
-#hlg_vars <- ls()[grep("hellwig|hlwg", ls())]
-#save(hlg_vars, file = "hlwg_data.RData")
+
+# hlg_vars <- ls()[grep("hellwig|hlwg", ls())]
+# for (var in hlg_vars) {
+#   assign(var, get(var))
+# }
+# save(list = hlg_vars, file = "hlwg_data.RData")
 
 # Predictors investigation (GGally) --------------------------------------------
 
@@ -150,14 +154,22 @@ glm_formula <- paste("grimm_pm10 ~", paste(paste(unlist(glm_hellwig_vars)), coll
 # Defining GLM Recipe
 glm_rec <-
   recipe(as.formula(glm_formula), data = train_data) |> 
+  update_role(grimm_pm10, new_role = "outcome") |>
   step_time(date, features = c("hour")) |>
   step_rm(date) |> 
-  step_dummy(all_nominal_predictors()) |> # wd needs to be numeric 
+  step_dummy(all_nominal_predictors()) |>
   step_zv(all_predictors()) |> 
-  step_normalize(all_predictors()) # Normalizacja
+  step_interact(terms = ~ starts_with("n_"):starts_with("n_")) |>  
+  step_poly(unlist(glm_hellwig_vars[1]), degree = 2, skip = FALSE) |> 
+  step_normalize(all_predictors()) |>
+  check_missing()
+  
+prepped_glm_rec <- prep(glm_rec)
+juice(prepped_glm_rec) |> glimpse()
 
 # Defining GLM Model
 glm_mod <- 
+  # linear_reg(penalty = tune(), mixture = 1) |> # For Lasso Regression
   linear_reg(penalty = tune(), mixture = tune()) |>
   set_engine(engine = "glmnet", num.threads = parallel::detectCores() - 1) |> 
   set_mode("regression")
@@ -169,27 +181,30 @@ glm_work <-
   add_recipe(glm_rec)
 
 # Setting up GLM grid
-glm_grid <- grid_random(penalty(range = c(-10, 0)), mixture(range = c(0, 1)), size = 30)
+set.seed(123)
+glm_grid <- grid_random(penalty(range = c(-5, 1)), mixture(range = c(0.7, 1)), size = 200)
+# glm_grid <- grid_random(penalty(range = c(-5, 1)), size = 200) # For Lasso Regression
 
 # GLM grid tuning
-glm_res <-
-  glm_work |>
+glm_res <- try(
   tune_grid(
+    glm_work,
     resamples = val_set,
     grid = glm_grid,
-    control = control_grid(save_pred = TRUE),
+    control = control_grid(save_pred = TRUE, allow_par = TRUE),
     metrics = metric_set(rsq, mae)
   )
+)
 
 # Assesment of best hyperparameter sets
 glm_best <- select_best(glm_res, metric = "rsq")
 
 # GLM: Show hyperparameter fitting results -------------------------------------
-# Show 90th hyperparameter quantile
+# Show 95th hyperparameter quantile
 glm_res |>
   show_best(metric = "rsq", n = Inf) |>
   arrange(desc(mean)) |> 
-  filter(mean > quantile(mean, 0.90))
+  filter(mean > quantile(mean, 0.95))
 
 # Best hyperparameter result
 glm_res |>
@@ -205,6 +220,10 @@ glm_fit <-
   glm_final_work |> 
   fit(data = train_data)
 
+# Final Model Fit Coefficients
+glmnet_model <- extract_fit_parsnip(glm_fit)
+coef(glmnet_model$fit, s = min(glmnet_model$fit$lambda))
+
 # GLM: GLM Metric Test ---------------------------------------------------------
 # Ex-Post Analysis
 glm_test_metrics <- glm_fit |> 
@@ -212,9 +231,13 @@ glm_test_metrics <- glm_fit |>
   bind_cols(test_data) |> 
   metrics(truth = grimm_pm10, estimate = .pred)
 
-glm_test_metrics # Highest R-Squared = 0.97 (achieved on data split seed = 128)
+glm_test_metrics # Highest R-Squared = 0.961 (achieved on data split seed = 123)
+
 # glinm_vars <- ls()[grep("glm", ls())]
-# save(glinm_vars, file = "glm_data.RData")
+# for (var in glinm_vars) {
+#   assign(var, get(var))
+# }
+# save(list = glinm_vars, file = "glm_data.RData")
 
 ## Random Forest model ---------------------------------------------------------
 
