@@ -319,6 +319,8 @@ save(rf_fit,
 
 #cel: znalezienie hiperpłaszczyzny maksymalnie separującej dane, co minimalizuje błędy predykcji.
 #model SVM
+load("SVM_data.RData")
+
 SVM_r_mod <- svm_rbf(
   mode= "regression",
   cost = tune(), # koszt, uniknięcie nadmiernegi dopasowania
@@ -422,6 +424,9 @@ ggplot(SVM_results, aes(x = grimm_pm10, y = .pred)) +
     y = "Predictions"
   ) + theme_bw()
 
+save(SVM_tune,
+     SVM_fit,
+     file = "SVM_data.RData")
 
 ## XGBoost model ---------------------------------------------------------------
 
