@@ -7,7 +7,7 @@ required_packages <- c("tidyverse", "data.table", "dplyr",
                        "ggpubr", "ranger", "modeldata", "tidymodels",
                        "rpart.plot", "readr","vip", "ggthemes", 
                        "parsnip", "GGally", "skimr", "xgboost",
-                       "doParallel")  
+                       "doParallel", "kernlab")  
 
 # Function to run packages and install missing ones
 install_if_missing <- function(packages) {
@@ -24,6 +24,7 @@ set.seed(123)
 
 #set working directory to the one where document exists
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+#print(getwd())
 
 #don't modify the ops file as this is our input we should always derive from
 load("ops.RData") ; ops <-
@@ -39,9 +40,6 @@ ops_validation <- left_join(ops_data, bam, by = "date")|>
   select(!grimm_pm10, -(poj_h:hour)) |> 
   relocate(bam_pm10, .before = "n_0044") |> 
   rename(grimm_pm10 = bam_pm10)
-
-
-
 
 # Data preparation -------------------------------------------------------------
 # Transforming wind to qualitative variable
@@ -316,9 +314,119 @@ save(rf_fit,
      rf_final_metrics,
      file = "rf_data.RData")
 
-## Support Vector machine model ------------------------------------------------
+
+## Support Vector machine model , SVM ----------------------------
+
+#cel: znalezienie hiperpłaszczyzny maksymalnie separującej dane, co minimalizuje błędy predykcji.
+#model SVM
+load("SVM_data.RData")
+
+SVM_r_mod <- svm_rbf(
+  mode= "regression",
+  cost = tune(), # koszt, uniknięcie nadmiernegi dopasowania
+  rbf_sigma = tune() # parametr jądra radialnego RBF
+) |> 
+  set_engine("kernlab")
+
+# Workflow
+SVM_wf <- 
+  workflow() |> 
+  add_model(SVM_r_mod) |> 
+  add_recipe(ops_rec)
+
+# Tuning grid, SVM
+SVM_grid <- grid_regular(
+  cost(), # zakres kosztów np: cost(range = c(-5, 5)),
+  rbf_sigma(), # Zakres sigma dla jądra RBF np  rbf_sigma(range = c(-5, 5)),
+  levels = 5)
+
+# Metrics
+SVM_metrics <- 
+  yardstick::metric_set(
+    rsq,
+    mae,
+    rmse)
+
+# 10 Cross validation 
+set.seed(123)
+SVM_folds <- vfold_cv(
+  train_data, 
+  v = 10, 
+  repeats = 5)
+
+# Parallel computing 
+cores = detectCores(logical = FALSE) - 1
+cl = makeCluster(cores)
+registerDoParallel(cl)
+
+# Hyperparameter tuning
+SVM_tune <- tune_grid(
+  object = SVM_wf,
+  resamples = SVM_folds,
+  grid = SVM_grid,
+  metrics = SVM_metrics,
+  control = control_grid(verbose = TRUE)
+)
+
+stopCluster(cl)
+
+#Showing the best candidates for model
+top_SVM_models <- 
+  SVM_tune |> 
+  show_best(metric="rsq", n = Inf) |> 
+  arrange(cost) |> 
+  mutate(mean = mean |> round(x = _, digits = 3))
+
+top_SVM_models |> gt::gt()
+
+#5 the best models
+SVM_tune|> 
+  show_best(metric="rsq") |> 
+  knitr::kable()
+
+#The best params
+SVM_best_params <- SVM_tune |> 
+  select_best(metric = "rsq")
+
+# Final Model
+SVM_model_final <- SVM_r_mod |>  
+  finalize_model(SVM_best_params)
+
+SVM_final_wf <- finalize_workflow(
+  SVM_wf,
+  SVM_best_params
+)
 
 
+#Fitting with train data
+SVM_fit <- SVM_final_wf |>
+  fit(data = train_data)
+
+# Predictions
+SVM_predictions <- predict(SVM_fit, new_data = test_data)
+
+SVM_results <- test_data |> 
+  mutate(
+    .pred = SVM_predictions$.pred) |> 
+  select(date, grimm_pm10, .pred)
+
+# Showing metrics of predictions 
+SVM_metrics(SVM_results, truth = grimm_pm10, estimate = .pred)
+#rsq=0.971, wskazuje na bardzo dobre odwzorowanie danych
+
+# Plot
+ggplot(SVM_results, aes(x = grimm_pm10, y = .pred)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Comparison of Actual vs. Predicted Values",
+    x = "Actual values (grimm_pm10)",
+    y = "Predictions"
+  ) + theme_bw()
+
+save(SVM_tune,
+     SVM_fit,
+     file = "SVM_data.RData")
 
 ## XGBoost model ---------------------------------------------------------------
 
@@ -391,6 +499,7 @@ xgboost_tuned |>
 
 xgboost_best_params <- xgboost_tuned |> 
   select_best(metric = "rsq")
+
 
 # Final Model
 xgboost_model_final <- xgboost_model |>  
