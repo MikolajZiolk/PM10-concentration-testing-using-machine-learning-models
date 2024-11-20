@@ -432,8 +432,7 @@ save(SVM_tune,
 
 
 
-# It is better to load stored data, computation takes too long
-load("xgboost_data.RData")
+
 
 # XGBoost model specification
 xgboost_model <- 
@@ -475,22 +474,35 @@ xgboost_metrics <-
 xgboost_folds <- 
   vfold_cv(train_data, v=10, repeats=5)
 
+
+# Set to FALSE to re-tune the XGBoost model, or TRUE to load a previously tuned model from an RData file.
+xgboost_load_data = TRUE
+
+# It is better to load stored data, computation takes too long
+if (xgboost_load_data) {
+  
+  load("xgboost_data.RData")
+  
+} else {
+  
 # Parallel computing 
-cores = detectCores(logical = FALSE) - 1
-cl = makeCluster(cores)
-registerDoParallel(cl)
+  cores = detectCores(logical = FALSE) - 1
+  cl = makeCluster(cores)
+  registerDoParallel(cl)
 
 # Hyperparameter tuning
-xgboost_tuned <- 
-  tune_grid(
-  object = xgboost_wf,
-  resamples = xgboost_folds,
-  grid = xgboost_grid,
-  metrics = xgboost_metrics,
-  control = control_grid(verbose = TRUE)
+  xgboost_tuned <- 
+    tune_grid(
+    object = xgboost_wf,
+    resamples = xgboost_folds,
+    grid = xgboost_grid,
+    metrics = xgboost_metrics,
+    control = control_grid(verbose = TRUE)
 )
 
-stopCluster(cl)
+  stopCluster(cl)
+}
+
 
 # Selecting best parameters
 xgboost_tuned |> 
@@ -504,7 +516,6 @@ xgboost_best_params <- xgboost_tuned |>
 # Final Model
 xgboost_model_final <- xgboost_model |>  
   finalize_model(xgboost_best_params)
-
 
 xgboost_final_wf <- finalize_workflow(
   xgboost_wf,
@@ -536,16 +547,5 @@ ggplot(xgboost_results, aes(x = grimm_pm10, y = .pred)) +
   ) + theme_bw()
 
 # Saving data
-save(xgboost_model,
-     xgboost_grid,
-     xgboost_wf,
-     xgboost_metrics,
-     xgboost_folds,
-     xgboost_tuned,
-     xgboost_best_params,
-     xgboost_model_final,
-     xgboost_final_wf,
-     xgboost_final_fit,
-     xgboost_predictions,
-     xgboost_results,
+save(xgboost_tuned,
      file = "xgboost_data.RData")
