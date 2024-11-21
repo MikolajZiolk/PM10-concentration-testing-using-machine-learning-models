@@ -454,7 +454,7 @@ xgboost_grid <-
     tree_depth(),
     learn_rate(),
     loss_reduction(),
-    levels = 10)
+    levels = 7)
 
 
 # Workflow
@@ -472,7 +472,7 @@ xgboost_metrics <-
 
 # Cross validation 
 xgboost_folds <- 
-  vfold_cv(train_data, v=10, repeats=5)
+  vfold_cv(train_data, v=10)
 
 
 # Set to FALSE to re-tune the XGBoost model, or TRUE to load a previously tuned model from an RData file.
