@@ -310,8 +310,6 @@ ggplot(rf_results, aes(x = grimm_pm10, y = .pred)) +
   ) + theme_bw()
 
 save(rf_fit,
-     rf_final_fit,
-     rf_final_metrics,
      file = "rf_data.RData")
 
 
