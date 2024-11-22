@@ -26,21 +26,6 @@ set.seed(123)
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 #print(getwd())
 
-#don't modify the ops file as this is our input we should always derive from
-load("ops.RData") ; ops <-
-  ops |>
-  na.omit() |> 
-  select(-ops_pm10, -pres_sea) #external requirement to never use ops_pm10
-
-#validation data (different measurement method)
-
-load("data_test.RData")
-
-ops_validation <- left_join(ops_data, bam, by = "date")|> 
-  select(!grimm_pm10, -(poj_h:hour)) |> 
-  relocate(bam_pm10, .before = "n_0044") |> 
-  rename(grimm_pm10 = bam_pm10)
-
 # Data preparation -------------------------------------------------------------
 # Transforming wind to qualitative variable
 wind_set_dir <- function(kat) {
@@ -51,8 +36,24 @@ wind_set_dir <- function(kat) {
   directions[index]
 }
 
-ops <- ops |> 
+#don't modify the ops file as this is our input we should always derive from
+load("ops.RData") ; ops <-
+  ops |>
+  na.omit() |> 
+  select(-ops_pm10, -pres_sea) |> #external requirement to never use ops_pm10
   mutate(wd = wind_set_dir(wd))
+  
+#validation data (different measurement method)
+
+load("data_test.RData")
+
+ops_validation <- left_join(ops_data, bam, by = "date")|> 
+  select(!grimm_pm10, -(poj_h:hour)) |> 
+  relocate(bam_pm10, .before = "n_0044") |> 
+  rename(grimm_pm10 = bam_pm10) |> 
+  na.omit() |> 
+  mutate(wd = wind_set_dir(wd))
+
 
 # Data Split -------------------------------------------------------------------
 set.seed(123)
@@ -64,6 +65,7 @@ val_set <- vfold_cv(data = train_data, v = 10, strata = "grimm_pm10")
 train_data |> dim()
 test_data |> dim()
 val_set |> dim()
+
 
 # Hellwig method implementation ------------------------------------------------
 load(file = "hlwg_data.RData")
@@ -127,12 +129,26 @@ hlwg_best_model
 # }
 # save(list = hlg_vars, file = "hlwg_data.RData")
 
-# Predictors investigation (GGally) --------------------------------------------
+
+##Data correlation analysis ---------------------------
+
+
+predictor_vars <- setdiff(names(ops), c("grimm_pm10", "date", "wd"))
+
+correlation_results <- ops |> 
+  select(all_of(predictor_vars), grimm_pm10) |> 
+  cor(use = "complete.obs") |> 
+  as.data.frame() |> 
+  rownames_to_column(var = "variable") |> 
+  filter(variable != "grimm_pm10") |> 
+  mutate(correlation = abs(grimm_pm10)) |> 
+  arrange(desc(correlation))
 
 
 
-# Initial recipe ---------------------------------------------------------------
+## Recipes ---------------------------------------------------------------
 
+#basic recipe
 ops_rec <- recipe(grimm_pm10  ~., data = train_data) |> 
   step_time(date, features = c("hour")) |>
   step_rm(date) |> 
@@ -142,7 +158,39 @@ ops_rec <- recipe(grimm_pm10  ~., data = train_data) |>
 
 ops_rec |> prep() |>  bake(train_data) |> glimpse() 
 
-# GLM --------------------------------------------------------------------------
+
+#recipe with predictors chosen by hellwig
+
+hellwig_vars_rec <- strsplit(c(hlwg_best_model$combination, "date"), "-")
+final_hellwig_formula <- paste("grimm_pm10 ~", paste(paste(unlist(hellwig_vars_rec)), collapse = " + "))
+
+hellwig_rec <-
+  recipe(as.formula(final_hellwig_formula), data = train_data) |> 
+  update_role(grimm_pm10, new_role = "outcome") |> 
+  step_time(date, features = c("hour")) |> 
+  step_rm(date) |> 
+  step_dummy(all_nominal_predictors()) |> # Encode categorical variables
+  step_zv(all_predictors()) |>            # Remove zero-variance predictors
+  check_missing()                         # Ensure no missing values
+
+hellwig_rec |> prep() |>  bake(train_data) |> glimpse() 
+
+#recipe made by analyzing data
+
+ops_rec_upgraded <- recipe(grimm_pm10  ~., data = train_data) |> 
+  #step_time(date, features = c("hour")) |>
+  step_mutate(n_1000 = n_0750 + n_1000) |> 
+  step_mutate(n_0200 = n_0100 + n_0120 + n_0140 + n_0200) |> 
+  step_rm(prec, mws, n_0750, n_0100, n_0120, n_0140) |>
+  update_role(date, new_role = "ID") |> 
+  step_dummy(all_nominal_predictors())
+  step_zv(all_predictors()) |> 
+  step_normalize(all_predictors())
+ops_rec_upgraded |> prep() |>  bake(train_data) |> glimpse() 
+
+
+### **************** ML MODELS *******************
+ # GLM --------------------------------------------------------------------------
 load(file = "glm_data.RData")
 
 # Defining formula based on Hellwig's algorithm result
@@ -248,18 +296,19 @@ rf_grid <- grid_regular(mtry(c(2,19)),
                         trees(c(400,1500)),
                         levels = 5)
 
+set.seed(123)
 rf_tune_spec <- 
   rand_forest(
     mtry = tune(), 
     trees = tune(),
     min_n = 2) |> 
-  set_engine("ranger") |> 
+  set_engine("ranger", importance = "permutation") |> 
   set_mode("regression")
 
 rf_wf <- 
   workflow() |> 
   add_model(rf_tune_spec) |> 
-  add_recipe(ops_rec)
+  add_recipe(ops_rec_upgraded)
 
 #turning on multicore processing for expensive workload
 cl <- makeCluster(parallel::detectCores())
@@ -268,7 +317,7 @@ registerDoParallel(cl)
 rf_fit <-
   rf_wf |>
   tune_grid(
-    resamples = vfold_cv(train_data, v=10, repeats=5),
+    resamples = vfold_cv(train_data, v=5, repeats=3),
     grid = rf_grid,
     control = control_grid(verbose = TRUE)
   )
@@ -298,6 +347,7 @@ rf_results <- test_data |>
 rf_final_metrics <- rf_predictions |> 
   bind_cols(test_data) |> 
   metrics(truth = grimm_pm10, estimate = .pred)
+rf_final_metrics
 
 
 ggplot(rf_results, aes(x = grimm_pm10, y = .pred)) +
@@ -427,10 +477,6 @@ save(SVM_tune,
      file = "SVM_data.RData")
 
 ## XGBoost model ---------------------------------------------------------------
-
-
-
-
 
 # XGBoost model specification
 xgboost_model <- 
