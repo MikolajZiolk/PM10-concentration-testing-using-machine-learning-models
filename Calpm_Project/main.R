@@ -54,7 +54,6 @@ ops_validation <- left_join(ops_data, bam, by = "date")|>
   na.omit() |> 
   mutate(wd = wind_set_dir(wd))
 
-
 # Data Split -------------------------------------------------------------------
 set.seed(123)
 split <- initial_split(data = ops, prop = 3/4, strata = "grimm_pm10")
@@ -1032,14 +1031,27 @@ tidy_results <- all_results |>
                values_to = "value") |> 
   mutate(type = if_else(type == "grimm_pm10", "True", model))
 
-# line chart
 ggplot(tidy_results, aes(x = date, y = value, color = type)) +
   geom_line() +
-  labs(title = "Porównanie rzeczywistych i przewidzianych wartości PM10",
-       x = "Data",
-       y = "Stężenie PM10 [µg/m³]",
-       color = "Typ/Model") +
+  labs(
+    title = "Comparison of Actual and Predicted PM10 Values",
+    x = "Date",
+    y = "PM10 Concentration [µg/m³]",
+    color = "Type/Model"
+  ) +
   theme_minimal() +
   theme(legend.position = "bottom")
 
-
+# Point Chart
+ggplot(all_results, aes(x = date)) +
+  geom_point(aes(y = true, color = "Actual"), size = 1) +
+  geom_point(aes(y = pred, color = "Predicted"), shape = 4) +
+  facet_wrap(~ model, scales = "free_y") +
+  labs(
+    title = "Comparison of Actual and Predicted Values",
+    x = "Date",
+    y = "PM10 Concentration",
+    color = "Values"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Actual" = "yellow", "Predicted" = "red"))
