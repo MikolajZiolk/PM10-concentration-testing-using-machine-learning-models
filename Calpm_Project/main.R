@@ -183,7 +183,7 @@ ops_rec_upgraded <- recipe(grimm_pm10  ~., data = train_data) |>
   step_mutate(n_0200 = n_0100 + n_0120 + n_0140 + n_0200) |> 
   step_rm(prec, mws, n_0750, n_0100, n_0120, n_0140) |>
   update_role(date, new_role = "ID") |> 
-  step_dummy(all_nominal_predictors())
+  step_dummy(all_nominal_predictors()) |> 
   step_zv(all_predictors()) |> 
   step_normalize(all_predictors())
 ops_rec_upgraded |> prep() |>  bake(train_data) |> glimpse() 
@@ -191,7 +191,6 @@ ops_rec_upgraded |> prep() |>  bake(train_data) |> glimpse()
 
 ### **************** ML MODELS *******************
  # GLM --------------------------------------------------------------------------
-load(file = "glm_data.RData")
 
 # Defining formula based on Hellwig's algorithm result
 glm_hellwig_vars <- strsplit(c(hlwg_best_model$combination, "date"), "-")
@@ -231,16 +230,26 @@ set.seed(123)
 glm_grid <- grid_random(penalty(range = c(-5, 1)), mixture(range = c(0.7, 1)), size = 200)
 # glm_grid <- grid_random(penalty(range = c(-5, 1)), size = 200) # For Lasso Regression
 
+
+glm_load_data = TRUE
+
+if (glm_load_data) {
+  
+  load(file = "glm_data.RData")
+  
+} else {
 # GLM grid tuning
-glm_res <- try(
-  tune_grid(
-    glm_work,
-    resamples = val_set,
-    grid = glm_grid,
-    control = control_grid(save_pred = TRUE, allow_par = TRUE),
-    metrics = metric_set(rsq, mae)
+  glm_res <- try(
+    tune_grid(
+      glm_work,
+      resamples = val_set,
+      grid = glm_grid,
+      control = control_grid(save_pred = TRUE, allow_par = TRUE),
+      metrics = metric_set(rsq, mae)
+    )
   )
-)
+
+}
 
 # Assesment of best hyperparameter sets
 glm_best <- select_best(glm_res, metric = "rsq")
@@ -273,8 +282,8 @@ coef(glmnet_model$fit, s = min(glmnet_model$fit$lambda))
 # GLM: GLM Metric Test ---------------------------------------------------------
 # Ex-Post Analysis
 glm_test_metrics <- glm_fit |> 
-  predict(test_data) |> 
-  bind_cols(test_data) |> 
+  predict(ops_validation) |> 
+  bind_cols(ops_validation) |> 
   metrics(truth = grimm_pm10, estimate = .pred)
 
 glm_test_metrics # Highest R-Squared = 0.961 (achieved on data split seed = 123)
@@ -305,52 +314,152 @@ rf_tune_spec <-
   set_engine("ranger", importance = "permutation") |> 
   set_mode("regression")
 
-rf_wf <- 
+rf_wf_basic <- 
+  workflow() |> 
+  add_model(rf_tune_spec) |> 
+  add_recipe(ops_rec)
+
+rf_wf_hlwg <- 
+  workflow() |> 
+  add_model(rf_tune_spec) |> 
+  add_recipe(hellwig_rec)
+
+rf_wf_upgraded <- 
   workflow() |> 
   add_model(rf_tune_spec) |> 
   add_recipe(ops_rec_upgraded)
 
+rf_metrics <- 
+  yardstick::metric_set(
+    rsq, 
+    mae,
+    rmse)
+
+# Set to FALSE to re-tune the rf model, or TRUE to load a previously tuned model from an RData file.
+rf_load_data = TRUE
+
+if (rf_load_data) {
+  
+  load("rf_data.RData")
+  
+} else {
+  
 #turning on multicore processing for expensive workload
-cl <- makeCluster(parallel::detectCores())
-registerDoParallel(cl)
+  cl <- makeCluster(parallel::detectCores())
+  registerDoParallel(cl)
+  
+  rf_fit_basic <-
+    rf_wf_basic |>
+    tune_grid(
+      resamples = vfold_cv(train_data, v=5, repeats=3),
+      grid = rf_grid,
+      control = control_grid(verbose = TRUE),
+      metrics = rf_metrics
+    )
+  
+  rf_fit_hlwg <-
+    rf_wf_hlwg |>
+    tune_grid(
+      resamples = vfold_cv(train_data, v=5, repeats=3),
+      grid = rf_grid,
+      control = control_grid(verbose = TRUE),
+      metrics = rf_metrics
+    )
+  
+  rf_fit_upgraded <-
+    rf_wf_upgraded |>
+    tune_grid(
+      resamples = vfold_cv(train_data, v=5, repeats=3),
+      grid = rf_grid,
+      control = control_grid(verbose = TRUE), 
+      metrics = rf_metrics
+    )
+  #turning off multicore processing
+  stopCluster(cl)
+  registerDoSEQ()
+}
 
-rf_fit <-
-  rf_wf |>
-  tune_grid(
-    resamples = vfold_cv(train_data, v=5, repeats=3),
-    grid = rf_grid,
-    control = control_grid(verbose = TRUE)
-  )
-
-#turning off multicore processing
-stopCluster(cl)
-registerDoSEQ()
-
-
-rf_best_params <- rf_fit |> 
+rf_best_params_basic <- rf_fit_basic |> 
   select_best(metric = "rsq")
 
-rf_final_wf <- finalize_workflow(
-  rf_wf,
-  rf_best_params
+rf_best_params_hlwg <- rf_fit_hlwg |> 
+  select_best(metric = "rsq")
+
+rf_best_params_upgraded <- rf_fit_upgraded |> 
+  select_best(metric = "rsq")
+
+
+rf_final_wf_basic <- finalize_workflow(
+  rf_wf_basic,
+  rf_best_params_basic
 )
 
-rf_final_fit <- fit(rf_final_wf, data = train_data)
+rf_final_wf_hlwg <- finalize_workflow(
+  rf_wf_hlwg,
+  rf_best_params_hlwg
+)
 
-rf_predictions <- predict(rf_final_fit, new_data = test_data)
+rf_final_wf_upgraded <- finalize_workflow(
+  rf_wf_upgraded,
+  rf_best_params_upgraded
+)
 
-rf_results <- test_data |> 
+
+rf_final_fit_basic <- fit(rf_final_wf_basic, data = train_data)
+
+rf_final_fit_hlwg <- fit(rf_final_wf_hlwg, data = train_data)
+
+rf_final_fit_upgraded <- fit(rf_final_wf_upgraded, data = train_data)
+
+
+rf_predictions_basic <- predict(rf_final_fit_basic, new_data = ops_validation)
+
+rf_predictions_hlwg <- predict(rf_final_fit_hlwg, new_data = ops_validation)
+
+rf_predictions_upgraded <- predict(rf_final_fit_upgraded, new_data = ops_validation)
+
+
+
+rf_results_basic <- ops_validation |> 
   mutate(
-    .pred = rf_predictions$.pred) |> 
+    .pred = rf_predictions_basic$.pred) |> 
   select(date, grimm_pm10, .pred)
 
-rf_final_metrics <- rf_predictions |> 
-  bind_cols(test_data) |> 
-  metrics(truth = grimm_pm10, estimate = .pred)
-rf_final_metrics
+rf_results_hlwg <- ops_validation |> 
+  mutate(
+    .pred = rf_predictions_hlwg$.pred) |> 
+  select(date, grimm_pm10, .pred)
+
+rf_results_upgraded <- ops_validation |> 
+  mutate(
+    .pred = rf_predictions_upgraded$.pred) |> 
+  select(date, grimm_pm10, .pred)
 
 
-ggplot(rf_results, aes(x = grimm_pm10, y = .pred)) +
+
+rf_metrics(rf_results_basic, truth = grimm_pm10, estimate = .pred)
+
+rf_metrics(rf_results_hlwg, truth = grimm_pm10, estimate = .pred)
+
+rf_metrics(rf_results_upgraded, truth = grimm_pm10, estimate = .pred)
+
+
+# rf_final_metrics_basic <- rf_predictions |> 
+#   bind_cols(test_data) |> 
+#   metrics(truth = grimm_pm10, estimate = .pred)
+# rf_final_metrics
+# 
+# rf_final_metrics_ <- rf_predictions |> 
+#   bind_cols(test_data) |> 
+#   metrics(truth = grimm_pm10, estimate = .pred)
+# rf_final_metrics
+# 
+# rf_final_metrics <- rf_predictions |> 
+#   bind_cols(test_data) |> 
+#   metrics(truth = grimm_pm10, estimate = .pred)
+# rf_final_metrics
+
+ggplot(rf_results_upgraded, aes(x = grimm_pm10, y = .pred)) +
   geom_point(alpha = 0.5) +
   geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
   labs(
@@ -359,7 +468,9 @@ ggplot(rf_results, aes(x = grimm_pm10, y = .pred)) +
     y = "Predictions"
   ) + theme_bw()
 
-save(rf_fit,
+save(rf_fit_basic,
+     rf_fit_hlwg,
+     rf_fit_upgraded,
      file = "rf_data.RData")
 
 
@@ -367,7 +478,6 @@ save(rf_fit,
 
 #cel: znalezienie hiperpłaszczyzny maksymalnie separującej dane, co minimalizuje błędy predykcji.
 #model SVM
-load("SVM_data.RData")
 
 SVM_r_mod <- svm_rbf(
   mode= "regression",
@@ -377,10 +487,20 @@ SVM_r_mod <- svm_rbf(
   set_engine("kernlab")
 
 # Workflow
-SVM_wf <- 
+SVM_wf_basic <- 
   workflow() |> 
   add_model(SVM_r_mod) |> 
   add_recipe(ops_rec)
+
+SVM_wf_hlwg <- 
+  workflow() |> 
+  add_model(SVM_r_mod) |> 
+  add_recipe(hellwig_rec)
+
+SVM_wf_upgraded <- 
+  workflow() |> 
+  add_model(SVM_r_mod) |> 
+  add_recipe(ops_rec_upgraded)
 
 # Tuning grid, SVM
 SVM_grid <- grid_regular(
@@ -402,68 +522,163 @@ SVM_folds <- vfold_cv(
   v = 10, 
   repeats = 5)
 
+# Set to FALSE to re-tune the svm model, or TRUE to load a previously tuned model from an RData file.
+SVM_load_data = TRUE
+
+if (SVM_load_data) {
+  
+  load("SVM_data.RData")
+  
+} else {
+  
 # Parallel computing 
-cores = detectCores(logical = FALSE) - 1
-cl = makeCluster(cores)
-registerDoParallel(cl)
+  cores = detectCores(logical = FALSE) - 1
+  cl = makeCluster(cores)
+  registerDoParallel(cl)
+  
+  # Hyperparameter tuning
+  SVM_tune_basic <- tune_grid(
+    object = SVM_wf_basic,
+    resamples = SVM_folds,
+    grid = SVM_grid,
+    metrics = SVM_metrics,
+    control = control_grid(verbose = TRUE)
+  )
+  
+  SVM_tune_hlwg <- tune_grid(
+    object = SVM_wf_hlwg,
+    resamples = SVM_folds,
+    grid = SVM_grid,
+    metrics = SVM_metrics,
+    control = control_grid(verbose = TRUE)
+  )
+  
+  SVM_tune_upgraded <- tune_grid(
+    object = SVM_wf_upgraded,
+    resamples = SVM_folds,
+    grid = SVM_grid,
+    metrics = SVM_metrics,
+    control = control_grid(verbose = TRUE)
+  )
+  stopCluster(cl)
 
-# Hyperparameter tuning
-SVM_tune <- tune_grid(
-  object = SVM_wf,
-  resamples = SVM_folds,
-  grid = SVM_grid,
-  metrics = SVM_metrics,
-  control = control_grid(verbose = TRUE)
-)
-
-stopCluster(cl)
-
+}
 #Showing the best candidates for model
-top_SVM_models <- 
-  SVM_tune |> 
+top_SVM_models_basic <- 
+  SVM_tune_basic |> 
   show_best(metric="rsq", n = Inf) |> 
   arrange(cost) |> 
   mutate(mean = mean |> round(x = _, digits = 3))
 
-top_SVM_models |> gt::gt()
+top_SVM_models_hlwg <- 
+  SVM_tune_hlwg |> 
+  show_best(metric="rsq", n = Inf) |> 
+  arrange(cost) |> 
+  mutate(mean = mean |> round(x = _, digits = 3))
+
+top_SVM_models_upgraded <- 
+  SVM_tune_upgraded |> 
+  show_best(metric="rsq", n = Inf) |> 
+  arrange(cost) |> 
+  mutate(mean = mean |> round(x = _, digits = 3))
+
+top_SVM_models_basic |> gt::gt()
+top_SVM_models_hlwg |> gt::gt()
+top_SVM_models_upgraded |> gt::gt()
+
 
 #5 the best models
-SVM_tune|> 
+SVM_tune_basic |> 
+  show_best(metric="rsq") |> 
+  knitr::kable()
+
+SVM_tune_hlwg |> 
+  show_best(metric="rsq") |> 
+  knitr::kable()
+
+SVM_tune_upgraded |> 
   show_best(metric="rsq") |> 
   knitr::kable()
 
 #The best params
-SVM_best_params <- SVM_tune |> 
+SVM_best_params_basic <- SVM_tune_basic |> 
+  select_best(metric = "rsq")
+
+SVM_best_params_hlwg <- SVM_tune_hlwg |> 
+  select_best(metric = "rsq")
+
+SVM_best_params_upgraded <- SVM_tune_upgraded |> 
   select_best(metric = "rsq")
 
 # Final Model
-SVM_model_final <- SVM_r_mod |>  
-  finalize_model(SVM_best_params)
+SVM_model_final_basic <- SVM_r_mod |>  
+  finalize_model(SVM_best_params_basic)
 
-SVM_final_wf <- finalize_workflow(
-  SVM_wf,
-  SVM_best_params
+SVM_model_final_hlwg <- SVM_r_mod |>  
+  finalize_model(SVM_best_params_hlwg)
+
+SVM_model_final_upgraded <- SVM_r_mod |>  
+  finalize_model(SVM_best_params_upgraded)
+
+
+SVM_final_wf_basic <- finalize_workflow(
+  SVM_wf_basic,
+  SVM_best_params_basic
 )
 
+SVM_final_wf_hlwg <- finalize_workflow(
+  SVM_wf_hlwg,
+  SVM_best_params_hlwg
+)
+
+SVM_final_wf_upgraded <- finalize_workflow(
+  SVM_wf_upgraded,
+  SVM_best_params_upgraded
+)
 
 #Fitting with train data
-SVM_fit <- SVM_final_wf |>
+SVM_fit_basic <- SVM_final_wf_basic |>
+  fit(data = train_data)
+
+SVM_fit_hlwg <- SVM_final_wf_hlwg |>
+  fit(data = train_data)
+
+SVM_fit_upgraded <- SVM_final_wf_upgraded |>
   fit(data = train_data)
 
 # Predictions
-SVM_predictions <- predict(SVM_fit, new_data = test_data)
+SVM_predictions_basic <- predict(SVM_fit_basic, new_data = ops_validation)
 
-SVM_results <- test_data |> 
+SVM_predictions_hlwg <- predict(SVM_fit_hlwg, new_data = ops_validation)
+
+SVM_predictions_upgraded <- predict(SVM_fit_upgraded, new_data = ops_validation)
+
+
+SVM_results_basic <- ops_validation |> 
   mutate(
-    .pred = SVM_predictions$.pred) |> 
+    .pred = SVM_predictions_basic$.pred) |> 
+  select(date, grimm_pm10, .pred)
+
+SVM_results_hlwg <- ops_validation |> 
+  mutate(
+    .pred = SVM_predictions_hlwg$.pred) |> 
+  select(date, grimm_pm10, .pred)
+
+SVM_results_upgraded <- ops_validation |> 
+  mutate(
+    .pred = SVM_predictions_upgraded$.pred) |> 
   select(date, grimm_pm10, .pred)
 
 # Showing metrics of predictions 
-SVM_metrics(SVM_results, truth = grimm_pm10, estimate = .pred)
+SVM_metrics(SVM_results_basic, truth = grimm_pm10, estimate = .pred)
 #rsq=0.971, wskazuje na bardzo dobre odwzorowanie danych
 
+SVM_metrics(SVM_results_hlwg, truth = grimm_pm10, estimate = .pred)
+
+SVM_metrics(SVM_results_upgraded, truth = grimm_pm10, estimate = .pred)
+
 # Plot
-ggplot(SVM_results, aes(x = grimm_pm10, y = .pred)) +
+ggplot(SVM_results_upgraded, aes(x = grimm_pm10, y = .pred)) +
   geom_point(alpha = 0.5) +
   geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
   labs(
@@ -472,8 +687,9 @@ ggplot(SVM_results, aes(x = grimm_pm10, y = .pred)) +
     y = "Predictions"
   ) + theme_bw()
 
-save(SVM_tune,
-     SVM_fit,
+save(SVM_tune_basic,
+     SVM_tune_hlwg,
+     SVM_tune_upgraded,
      file = "SVM_data.RData")
 
 ## XGBoost model ---------------------------------------------------------------
@@ -502,10 +718,20 @@ xgboost_grid <-
 
 
 # Workflow
-xgboost_wf <- 
+xgboost_wf_basic <- 
   workflow() |> 
   add_model(xgboost_model) |> 
   add_recipe(ops_rec)
+
+xgboost_wf_hlwg <- 
+  workflow() |> 
+  add_model(xgboost_model) |> 
+  add_recipe(hellwig_rec)
+
+xgboost_wf_upgraded <- 
+  workflow() |> 
+  add_model(xgboost_model) |> 
+  add_recipe(ops_rec_upgraded)
 
 # Metrics
 xgboost_metrics <- 
@@ -528,60 +754,129 @@ if (xgboost_load_data) {
   load("xgboost_data.RData")
   
 } else {
-  
+
 # Parallel computing 
-  cores = detectCores(logical = FALSE) - 1
+  cores = detectCores()
   cl = makeCluster(cores)
   registerDoParallel(cl)
 
 # Hyperparameter tuning
-  xgboost_tuned <- 
+  xgboost_tuned_basic <- 
     tune_grid(
-    object = xgboost_wf,
+    object = xgboost_wf_basic,
     resamples = xgboost_folds,
     grid = xgboost_grid,
     metrics = xgboost_metrics,
     control = control_grid(verbose = TRUE)
 )
-
+  
+  xgboost_tuned_hlwg <- 
+    tune_grid(
+      object = xgboost_wf_hlwg,
+      resamples = xgboost_folds,
+      grid = xgboost_grid,
+      metrics = xgboost_metrics,
+      control = control_grid(verbose = TRUE)
+    )
+  
+  xgboost_tuned_upgraded <- 
+    tune_grid(
+      object = xgboost_wf_upgraded,
+      resamples = xgboost_folds,
+      grid = xgboost_grid,
+      metrics = xgboost_metrics,
+      control = control_grid(verbose = TRUE)
+    )
   stopCluster(cl)
 }
 
 
 # Selecting best parameters
-xgboost_tuned |> 
+xgboost_tuned_basic |> 
   show_best(metric = "rsq") |> 
   knitr::kable()
 
-xgboost_best_params <- xgboost_tuned |> 
+xgboost_tuned_hlwg |> 
+  show_best(metric = "rsq") |> 
+  knitr::kable()
+
+xgboost_tuned_upgraded |> 
+  show_best(metric = "rsq") |> 
+  knitr::kable()
+
+
+xgboost_basic_best_params <- xgboost_tuned_basic |> 
   select_best(metric = "rsq")
 
+xgboost_hlwg_best_params <- xgboost_tuned_hlwg |> 
+  select_best(metric = "rsq")
+
+xgboost_upgraded_best_params <- xgboost_tuned_upgraded |> 
+  select_best(metric = "rsq")
 
 # Final Model
-xgboost_model_final <- xgboost_model |>  
-  finalize_model(xgboost_best_params)
+xgboost_model_final_basic <- xgboost_model |>  
+  finalize_model(xgboost_basic_best_params)
 
-xgboost_final_wf <- finalize_workflow(
-  xgboost_wf,
-  xgboost_best_params
+xgboost_model_final_hlwg <- xgboost_model |>  
+  finalize_model(xgboost_hlwg_best_params)
+
+xgboost_model_final_upgraded <- xgboost_model |>  
+  finalize_model(xgboost_upgraded_best_params)
+
+xgboost_final_wf_basic <- finalize_workflow(
+  xgboost_wf_basic,
+  xgboost_basic_best_params
+)
+
+xgboost_final_wf_hlwg <- finalize_workflow(
+  xgboost_wf_hlwg,
+  xgboost_hlwg_best_params
+)
+
+xgboost_final_wf_upgraded <- finalize_workflow(
+  xgboost_wf_upgraded,
+  xgboost_upgraded_best_params
 )
 
 # Fit
-xgboost_final_fit <- fit(xgboost_final_wf, data = train_data)
+xgboost_final_fit_basic <- fit(xgboost_final_wf_basic, data = train_data)
+
+xgboost_final_fit_hlwg <- fit(xgboost_final_wf_hlwg, data = train_data)
+
+xgboost_final_fit_upgraded <- fit(xgboost_final_wf_upgraded, data = train_data)
 
 # Predictions
-xgboost_predictions <- predict(xgboost_final_fit, new_data = test_data)
+xgboost_predictions_basic <- predict(xgboost_final_fit_basic, new_data = ops_validation)
 
-xgboost_results <- test_data |> 
+xgboost_predictions_hlwg  <- predict(xgboost_final_fit_hlwg, new_data = ops_validation)
+
+xgboost_predictions_upgraded  <- predict(xgboost_final_fit_upgraded, new_data = ops_validation)
+
+xgboost_results_basic <- ops_validation |> 
   mutate(
-    .pred = xgboost_predictions$.pred) |> 
+    .pred = xgboost_predictions_basic$.pred) |> 
+  select(date, grimm_pm10, .pred)
+
+xgboost_results_hlwg <- ops_validation |> 
+  mutate(
+    .pred = xgboost_predictions_hlwg$.pred) |> 
+  select(date, grimm_pm10, .pred)
+
+xgboost_results_upgraded <- ops_validation |> 
+  mutate(
+    .pred = xgboost_predictions_upgraded$.pred) |> 
   select(date, grimm_pm10, .pred)
 
 # Showing metrics of predictions 
-xgboost_metrics(xgboost_results, truth = grimm_pm10, estimate = .pred)
+xgboost_metrics(xgboost_results_basic, truth = grimm_pm10, estimate = .pred)
+
+xgboost_metrics(xgboost_results_hlwg, truth = grimm_pm10, estimate = .pred)
+
+xgboost_metrics(xgboost_results_upgraded, truth = grimm_pm10, estimate = .pred)
 
 # Plot
-ggplot(xgboost_results, aes(x = grimm_pm10, y = .pred)) +
+ggplot(xgboost_results_upgraded, aes(x = grimm_pm10, y = .pred)) +
   geom_point(alpha = 0.5) +
   geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
   labs(
@@ -591,5 +886,114 @@ ggplot(xgboost_results, aes(x = grimm_pm10, y = .pred)) +
   ) + theme_bw()
 
 # Saving data
-save(xgboost_tuned,
+save(xgboost_tuned_basic,
+     xgboost_tuned_upgraded,
+     xgboost_tuned_hlwg,
      file = "xgboost_data.RData")
+
+
+
+## Metric table all models  ----------------------------------------------------
+
+# xgboost
+xgboost_metrics(xgboost_results_basic, truth = grimm_pm10, estimate = .pred)
+
+xgboost_metrics(xgboost_results_hlwg, truth = grimm_pm10, estimate = .pred)
+
+xgboost_metrics(xgboost_results_upgraded, truth = grimm_pm10, estimate = .pred)
+
+
+xgboost_metrics_basic <- xgboost_metrics(xgboost_results_basic, truth = grimm_pm10, estimate = .pred) |> 
+  mutate(recipe = "Basic")
+xgboost_metrics_hlwg <- xgboost_metrics(xgboost_results_hlwg, truth = grimm_pm10, estimate = .pred) |> 
+  mutate(recipe = "HLWG")
+xgboost_metrics_upgraded <- xgboost_metrics(xgboost_results_upgraded, truth = grimm_pm10, estimate = .pred) |> 
+  mutate(recipe = "Upgraded")
+
+# Make one table from all metrics
+xgboost_all_metrics <- bind_rows(xgboost_metrics_basic, xgboost_metrics_hlwg, xgboost_metrics_upgraded)
+
+
+# Table for better comparsion
+xgboost_comparison_table <- xgboost_all_metrics |> 
+  select(recipe, .metric, .estimate) |> 
+  pivot_wider(names_from = .metric, values_from = .estimate)
+
+# SVM
+SVM_metrics(SVM_results_basic, truth = grimm_pm10, estimate = .pred)
+
+SVM_metrics(SVM_results_hlwg, truth = grimm_pm10, estimate = .pred)
+
+SVM_metrics(SVM_results_upgraded, truth = grimm_pm10, estimate = .pred)
+
+
+SVM_metrics_basic <- SVM_metrics(SVM_results_basic, truth = grimm_pm10, estimate = .pred) |> 
+  mutate(recipe = "Basic")
+SVM_metrics_hlwg <- SVM_metrics(SVM_results_hlwg, truth = grimm_pm10, estimate = .pred) |> 
+  mutate(recipe = "HLWG")
+SVM_metrics_upgraded <- SVM_metrics(SVM_results_upgraded, truth = grimm_pm10, estimate = .pred) |> 
+  mutate(recipe = "Upgraded")
+
+# Make one table from all metrics
+SVM_all_metrics <- bind_rows(SVM_metrics_basic, SVM_metrics_hlwg, SVM_metrics_upgraded)
+
+
+# Table for better comparsion
+SVM_comparison_table <- SVM_all_metrics |> 
+  select(recipe, .metric, .estimate) |> 
+  pivot_wider(names_from = .metric, values_from = .estimate)
+
+
+
+# rf
+rf_metrics(rf_results_basic, truth = grimm_pm10, estimate = .pred)
+
+rf_metrics(rf_results_hlwg, truth = grimm_pm10, estimate = .pred)
+
+rf_metrics(rf_results_upgraded, truth = grimm_pm10, estimate = .pred)
+
+rf_metrics_basic <- rf_metrics(rf_results_basic, truth = grimm_pm10, estimate = .pred) |> 
+  mutate(recipe = "Basic")
+rf_metrics_hlwg <- rf_metrics(rf_results_hlwg, truth = grimm_pm10, estimate = .pred) |> 
+  mutate(recipe = "HLWG")
+rf_metrics_upgraded <- rf_metrics(rf_results_upgraded, truth = grimm_pm10, estimate = .pred) |> 
+  mutate(recipe = "Upgraded")
+
+# Make one table from all metrics
+rf_all_metrics <- bind_rows(rf_metrics_basic, rf_metrics_hlwg, rf_metrics_upgraded)
+
+
+# Table for better comparsion
+rf_comparison_table <- rf_all_metrics |> 
+  select(recipe, .metric, .estimate) |> 
+  pivot_wider(names_from = .metric, values_from = .estimate)
+
+
+# Final tabels
+
+## Notes ----------------------------------------------------------
+# All model metrics are calculated using the ops_validation dataset.
+# The file was modified to disable parameter retuning, so the entire script can be executed without adjustments.
+
+# Below are the results for each model.
+rf_comparison_table <- rf_comparison_table |> mutate(model = "Random forest")
+SVM_comparison_table <- SVM_comparison_table |> mutate(model = "SVM")
+xgboost_comparison_table <- xgboost_comparison_table |> mutate(model = "XGBoost")
+
+# Glm used 1 recipe
+glm_comparasion_tabel <- glm_test_metrics  |> 
+  select(.metric, .estimate) |> 
+  pivot_wider(names_from = .metric, values_from = .estimate) |> 
+  mutate(model = "GLM", recipe = "GLM recipe")
+
+
+rf_best_metric <- rf_comparison_table |> 
+  slice_max(rsq, n = 1, with_ties = FALSE)
+
+SVM_best_metric <- SVM_comparison_table |> 
+  slice_max(rsq, n = 1, with_ties = FALSE)
+
+xgboost_best_metric <- xgboost_comparison_table |> 
+  slice_max(rsq, n = 1, with_ties = FALSE)
+
+final_metrics <- bind_rows(glm_comparasion_tabel, rf_best_metric, SVM_best_metric, xgboost_best_metric)
