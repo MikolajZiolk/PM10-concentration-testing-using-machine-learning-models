@@ -7,7 +7,7 @@ required_packages <- c("tidyverse", "data.table", "dplyr",
                        "ggpubr", "ranger", "modeldata", "tidymodels",
                        "rpart.plot", "readr","vip", "ggthemes", 
                        "parsnip", "GGally", "skimr", "xgboost",
-                       "doParallel", "kernlab")  
+                       "doParallel", "kernlab", "ggplot2")  
 
 # Function to run packages and install missing ones
 install_if_missing <- function(packages) {
@@ -53,7 +53,6 @@ ops_validation <- left_join(ops_data, bam, by = "date")|>
   rename(grimm_pm10 = bam_pm10) |> 
   na.omit() |> 
   mutate(wd = wind_set_dir(wd))
-
 
 # Data Split -------------------------------------------------------------------
 set.seed(123)
@@ -186,6 +185,7 @@ ops_rec_upgraded <- recipe(grimm_pm10  ~., data = train_data) |>
   step_dummy(all_nominal_predictors()) |> 
   step_zv(all_predictors()) |> 
   step_normalize(all_predictors())
+
 ops_rec_upgraded |> prep() |>  bake(train_data) |> glimpse() 
 
 
@@ -671,7 +671,6 @@ SVM_results_upgraded <- ops_validation |>
 
 # Showing metrics of predictions 
 SVM_metrics(SVM_results_basic, truth = grimm_pm10, estimate = .pred)
-#rsq=0.971, wskazuje na bardzo dobre odwzorowanie danych
 
 SVM_metrics(SVM_results_hlwg, truth = grimm_pm10, estimate = .pred)
 
@@ -997,3 +996,61 @@ xgboost_best_metric <- xgboost_comparison_table |>
   slice_max(rsq, n = 1, with_ties = FALSE)
 
 final_metrics <- bind_rows(glm_comparasion_tabel, rf_best_metric, SVM_best_metric, xgboost_best_metric)
+
+
+## Comparison Charts  ----------------------------------------------------
+
+#The best versions of models and uniform structure
+glm_resultsX <- ops_validation |> 
+  mutate(
+    model = "GLM", 
+    pred = predict(glm_fit, new_data = ops_validation)$.pred
+  ) |> 
+  select(date, grimm_pm10, pred, model, pred) |> 
+  rename(.pred = pred)
+
+rf_resultsX <- rf_results_upgraded |> 
+  mutate(model = "Random Forest")
+
+svm_resultsX <- SVM_results_hlwg |> 
+  mutate(model = "SVM")
+
+xgb_resultsX <- xgboost_results_upgraded |> 
+  mutate(model = "XGBoost")
+
+# Combination of all results
+all_results <- bind_rows(glm_resultsX, rf_resultsX, svm_resultsX, xgb_resultsX)
+
+
+# Prepare data to tidy
+tidy_results <- all_results |> 
+  pivot_longer(cols = c(grimm_pm10, .pred), 
+               names_to = "type", 
+               values_to = "value") |> 
+  mutate(type = if_else(type == "grimm_pm10", "True", model))
+
+# Line Chart
+ggplot(tidy_results, aes(x = date, y = value, color = type)) +
+  geom_line() +
+  labs(
+    title = "Comparison of Actual and Predicted PM10 Values",
+    x = "Date",
+    y = "PM10 Concentration [µg/m³]",
+    color = "Type/Model"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# Point Chart
+ggplot(all_results, aes(x = date)) +
+  geom_point(aes(y = grimm_pm10, color = "Actual"), size = 1) +
+  geom_point(aes(y = .pred, color = "Predicted"), shape = 4, size=0.5) +
+  facet_wrap(~ model, scales = "free_y") +
+  labs(
+    title = "Comparison of Actual and Predicted Values",
+    x = "Date",
+    y = "PM10 Concentration",
+    color = "Values"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Actual" = "yellow", "Predicted" = "red"))
