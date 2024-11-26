@@ -468,10 +468,10 @@ ggplot(rf_results_upgraded, aes(x = grimm_pm10, y = .pred)) +
     y = "Predictions"
   ) + theme_bw()
 
-save(rf_fit_basic,
-     rf_fit_hlwg,
-     rf_fit_upgraded,
-     file = "rf_data.RData")
+# save(rf_fit_basic,
+#      rf_fit_hlwg,
+#      rf_fit_upgraded,
+#      file = "rf_data.RData")
 
 
 ## Support Vector machine model , SVM ----------------------------
@@ -686,10 +686,10 @@ ggplot(SVM_results_upgraded, aes(x = grimm_pm10, y = .pred)) +
     y = "Predictions"
   ) + theme_bw()
 
-save(SVM_tune_basic,
-     SVM_tune_hlwg,
-     SVM_tune_upgraded,
-     file = "SVM_data.RData")
+# save(SVM_tune_basic,
+#      SVM_tune_hlwg,
+#      SVM_tune_upgraded,
+#      file = "SVM_data.RData")
 
 ## XGBoost model ---------------------------------------------------------------
 
@@ -885,10 +885,10 @@ ggplot(xgboost_results_upgraded, aes(x = grimm_pm10, y = .pred)) +
   ) + theme_bw()
 
 # Saving data
-save(xgboost_tuned_basic,
-     xgboost_tuned_upgraded,
-     xgboost_tuned_hlwg,
-     file = "xgboost_data.RData")
+# save(xgboost_tuned_basic,
+#      xgboost_tuned_upgraded,
+#      xgboost_tuned_hlwg,
+#      file = "xgboost_data.RData")
 
 
 
@@ -1054,3 +1054,7 @@ ggplot(all_results, aes(x = date)) +
   ) +
   theme_minimal() +
   scale_color_manual(values = c("Actual" = "yellow", "Predicted" = "red"))
+
+# save(tidy_results,
+#      all_results,
+#      file = "plot_data.RData")
