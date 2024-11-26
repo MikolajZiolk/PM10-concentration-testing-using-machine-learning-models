@@ -1004,21 +1004,19 @@ final_metrics <- bind_rows(glm_comparasion_tabel, rf_best_metric, SVM_best_metri
 glm_resultsX <- ops_validation |> 
   mutate(
     model = "GLM", 
-    true = grimm_pm10, 
     pred = predict(glm_fit, new_data = ops_validation)$.pred
   ) |> 
-  select(date, grimm_pm10, pred, model, true, pred) |> 
-  rename(.pred = pred) |> 
-  mutate(pred = .pred)
+  select(date, grimm_pm10, pred, model, pred) |> 
+  rename(.pred = pred)
 
 rf_resultsX <- rf_results_upgraded |> 
-  mutate(model = "Random Forest", true = grimm_pm10, pred = .pred)
+  mutate(model = "Random Forest")
 
 svm_resultsX <- SVM_results_hlwg |> 
-  mutate(model = "SVM", true = grimm_pm10, pred = .pred)
+  mutate(model = "SVM")
 
 xgb_resultsX <- xgboost_results_upgraded |> 
-  mutate(model = "XGBoost", true = grimm_pm10, pred = .pred)
+  mutate(model = "XGBoost")
 
 # Combination of all results
 all_results <- bind_rows(glm_resultsX, rf_resultsX, svm_resultsX, xgb_resultsX)
@@ -1031,6 +1029,7 @@ tidy_results <- all_results |>
                values_to = "value") |> 
   mutate(type = if_else(type == "grimm_pm10", "True", model))
 
+# Line Chart
 ggplot(tidy_results, aes(x = date, y = value, color = type)) +
   geom_line() +
   labs(
@@ -1044,8 +1043,8 @@ ggplot(tidy_results, aes(x = date, y = value, color = type)) +
 
 # Point Chart
 ggplot(all_results, aes(x = date)) +
-  geom_point(aes(y = true, color = "Actual"), size = 1) +
-  geom_point(aes(y = pred, color = "Predicted"), shape = 4) +
+  geom_point(aes(y = grimm_pm10, color = "Actual"), size = 1) +
+  geom_point(aes(y = .pred, color = "Predicted"), shape = 4, size=0.5) +
   facet_wrap(~ model, scales = "free_y") +
   labs(
     title = "Comparison of Actual and Predicted Values",
