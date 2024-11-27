@@ -997,7 +997,6 @@ xgboost_best_metric <- xgboost_comparison_table |>
 
 final_metrics <- bind_rows(glm_comparasion_tabel, rf_best_metric, SVM_best_metric, xgboost_best_metric)
 
-
 ## Comparison Charts  ----------------------------------------------------
 
 #The best versions of models and uniform structure
@@ -1057,4 +1056,5 @@ ggplot(all_results, aes(x = date)) +
 
 # save(tidy_results,
 #      all_results,
+#      final_metrics,
 #      file = "plot_data.RData")

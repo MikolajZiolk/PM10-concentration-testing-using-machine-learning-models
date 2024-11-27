@@ -1,0 +1,155 @@
+---
+title: "Prezentacja_CalPM"
+author: "Team2"
+abstract-title: "Temat"
+abstract: "Zaprezentowanie przebiegu pracy i wyników projektu CalPM"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    toc-title: Spis Treści
+    number-sections: true
+    number-depth: 3
+    embed-resources: true
+    html-math-method: katex
+    code-tools: true
+    code-block-bg: true
+    code-fold: show
+    code-summary: "Show and hide code"
+    link-external-icon: true
+    link-external-newwindow: true
+    smooth-scroll: true
+    self-contained: true
+    citation: true
+    theme: 
+        dark: solar
+        light: flatly
+    fontsize: 1.0em
+    linestretch: 1.3
+    fig-align: center
+execute: 
+  echo: true
+  error: false
+  warning: false
+  output: true
+---
+
+```{r}
+#| echo: false
+#| results: "hide"
+#| label: Pakiety
+pkg <- c(
+  "ggthemes",
+  "ggplot2"
+)
+
+pkg |>
+  purrr::map(
+    .f = ~ require(.x, character.only = T) |> paste(.x)
+  )
+rm(pkg)
+#setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+load("./plot_data.RData")
+```
+
+## Organizacja pracy
+
+Praca była wykonywana w przybliżeniu przebiegała nastepującego według diagramu blokowego:
+
+![Diagram blokowy przedstawiający workflow](images/mindmap_calpm.png)
+
+Praca rozpoczynała się zawsze od spotkania, omówienia wspólnie obecnego stanu projektu/celu, wyznaczeniu zadań na następny tydzień i zapisaniu ich w Plannerze (appka teams):![Wygląd tablicy pod koniec projektu](images/clipboard-1910004781.png){width="1300"}
+
+Starano się aby każdy na tydzień miał wyznaczone zadanie, które będzie mogło być wykonywane równolegle z resztą zespołu, nie zawsze było to jednak łatwe do osiągnięcia.
+
+Np. przy starcie projektu nalażało stworzyć pierwszy plik, w którym zostaną wczytane podstawowe biblioteki oraz dane. Gdyby każdy to zrobił z osobna, zostały by zmarnowane zasoby na powtarzanie tej samej czynności i ciężko było by dokonać tego merge. Dlatego niektóre czynności, które musiały być wykonane tylko raz i wstrzymywałyby reszte zespołu przed pracą były przypisowane do osób, które wyrażały możliwość szybkiego wykonania taska.
+
+**Praca w jednym pliku** - celem ćwiczenia, aby lepiej widzieć postępujący kod pisany przez innych i stworzenie merge conflictów zdecydowano się na pracę w jednym pliku R. Wraz z rozwojem projektu, plik osiągnał 1000+ linijek, co robi się ciężkie do nawigowania po nim.
+
+**Praca z gitem -** po wyznaczeniu tasków, każdy mógł stworzyć od main'a swój branch, na którym mógł bez przeszkód wykonywać zadanie, po uznaniu go za spełniające kryteria, wystawiał pull request, lider robił review, gdzie decydował się na przyłączenie (bądź tez nie, wtedy zostawiał feedback 😉) do maina. Merge conflicty również były rozwiązywane przez lidera. Po udanym merge lider odchaczał taska w plannerze.
+
+![](images/clipboard-1210523945.png)
+
+# Wykonywanie projektu
+
+Sam projekt CalPM, został podzielony na części - przygotwanie skryptu, przygotowanie przepisów, przygotwanie i trenowanie modeli, sprawdzenie modeli na walidacyjnym zestawie danych i sporządzenie metryk i wykresów.
+
+Kroki wykonywane przy wykonywaniu projektu, wszystko co mogło być robione równolegle jest napisane w jednym kroku.
+
+1.  Stworzenie skryptu z podstawowymi danymi
+
+2.  Utworzenie przykładowego przepisu (umożliwia każdemu tworzenie modelów)
+
+3.  Wytrenowanie wybranych modeli, utworzenie dodatkowych przepisów (najbardziej pracochłonny krok)
+
+4.  Sprawdzenie wszystkich modeli na zestawie walidacyjnym, utworzenie wykresów metryk i tabeli porównawczych modeli.
+
+W skrypcie za pomocą komentarzy wydzielano wspólne i osobne przestrzenie, dla przykładu:
+
+```{r}
+#| eval: false
+# loading all libraries and files
+# List of required packages !!!! please add your libraries to the vector !!!!
+required_packages <- c("tidyverse", "data.table", "dplyr",
+                       "ggpubr", "ranger", "modeldata", "tidymodels",
+                       "rpart.plot", "readr","vip", "ggthemes", 
+                       "parsnip", "GGally", "skimr", "xgboost",
+                       "doParallel", "kernlab", "ggplot2")  
+#
+
+[...]
+
+## XGBoost model ---------------------------------------------------------------
+
+# XGBoost model specification
+xgboost_model <- 
+  boost_tree(
+    mode = "regression",
+    trees = 200,
+    min_n = tune(),
+    tree_depth = tune(),
+    learn_rate = tune(),
+    loss_reduction = tune()
+  ) |> 
+  [...]
+```
+
+Wszystkie wytrenowane modele (na tym samym seedzie) były zapisywane do pliku, celem uniknięcia ponownego wykonywania czasochłonnych operacji. Zastosowano proste wyrażenie IF/ELSE którym można decydowac czy chcemy wykonac cały skrypt trenując modele od nowa
+
+```{r}
+#| eval: false
+# It is better to load stored data, computation takes too long
+if (xgboost_load_data) {
+  
+  load("xgboost_data.RData")
+  
+} else {
+
+# Parallel computing 
+  cores = detectCores()
+  cl = makeCluster(cores)
+  registerDoParallel(cl)
+
+# Hyperparameter tuning
+  xgboost_tuned_basic <- 
+    tune_grid(
+    object = xgboost_wf_basic,
+    resamples = xgboost_folds,
+    grid = xgboost_grid,
+    metrics = xgboost_metrics,
+    control = control_grid(verbose = TRUE)
+)
+```
+
+# Lessons Learned
+
+-   Warto lepiej zgłębić temat przed planowaniem pracy - jako lider na początku nie za bardzo rozumiałem scope całego projektu, gdyby to poprawić można by lepiej zaplanować równoległą pracę w projekcie oraz poświęcić więcej czasu na dopracowanie modeli/zwiększenie liczebności.
+
+-   Możliwe ustalenie wszystkich potrzebnych wspólnych konwencji - jaki seed, w jakiej formie każdy powinien przedstawić wydajnośc swojego modelu, jak nazywać zmienne, aby uniknąć chaosu (team poradził sobie z tym tematem bardzo dobrze, ale myślę że jako lider powinienem to poruszyć).
+
+-   Przekombinowanie plannera - w tak prostym projekcie nie potrzebne jest, aby każdy oznajmiał nad czym obecnie pracuje, a co ma już oddane, jest to projekt wykonywany w wolnym czasie. Metodologię pracy należy dobierać do potrzeb zespołu.
+
+# Wyniki projektu
+
+cdn.
