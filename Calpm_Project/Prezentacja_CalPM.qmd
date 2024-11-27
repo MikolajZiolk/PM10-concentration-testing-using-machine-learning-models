@@ -55,7 +55,7 @@ load("./plot_data.RData")
 
 ## Organizacja pracy
 
-Praca była wykonywana w przybliżeniu przebiegała nastepującego według diagramu blokowego:
+Praca była wykonywana w przybliżeniu przebiegała następującego według diagramu blokowego:
 
 ![Diagram blokowy przedstawiający workflow](images/mindmap_calpm.png)
 
@@ -63,17 +63,17 @@ Praca rozpoczynała się zawsze od spotkania, omówienia wspólnie obecnego stan
 
 Starano się aby każdy na tydzień miał wyznaczone zadanie, które będzie mogło być wykonywane równolegle z resztą zespołu, nie zawsze było to jednak łatwe do osiągnięcia.
 
-Np. przy starcie projektu nalażało stworzyć pierwszy plik, w którym zostaną wczytane podstawowe biblioteki oraz dane. Gdyby każdy to zrobił z osobna, zostały by zmarnowane zasoby na powtarzanie tej samej czynności i ciężko było by dokonać tego merge. Dlatego niektóre czynności, które musiały być wykonane tylko raz i wstrzymywałyby reszte zespołu przed pracą były przypisowane do osób, które wyrażały możliwość szybkiego wykonania taska.
+Np. przy starcie projektu należało stworzyć pierwszy plik, w którym zostaną wczytane podstawowe biblioteki oraz dane. Gdyby każdy to zrobił z osobna, zostały by zmarnowane zasoby na powtarzanie tej samej czynności i ciężko było by dokonać tego merge. Dlatego niektóre czynności, które musiały być wykonane tylko raz i wstrzymywałyby resztę zespołu przed pracą były przypisywane do osób, które wyrażały możliwość szybkiego wykonania taska.
 
-**Praca w jednym pliku** - celem ćwiczenia, aby lepiej widzieć postępujący kod pisany przez innych i stworzenie merge conflictów zdecydowano się na pracę w jednym pliku R. Wraz z rozwojem projektu, plik osiągnał 1000+ linijek, co robi się ciężkie do nawigowania po nim.
+**Praca w jednym pliku** - celem ćwiczenia, aby lepiej widzieć postępujący kod pisany przez innych i stworzenie merge konfliktów zdecydowano się na pracę w jednym pliku R. Wraz z rozwojem projektu, plik osiągnął 1000+ linijek, co robi się ciężkie do nawigowania po nim.
 
-**Praca z gitem -** po wyznaczeniu tasków, każdy mógł stworzyć od main'a swój branch, na którym mógł bez przeszkód wykonywać zadanie, po uznaniu go za spełniające kryteria, wystawiał pull request, lider robił review, gdzie decydował się na przyłączenie (bądź tez nie, wtedy zostawiał feedback 😉) do maina. Merge conflicty również były rozwiązywane przez lidera. Po udanym merge lider odchaczał taska w plannerze.
+**Praca z gitem -** po wyznaczeniu tasków, każdy mógł stworzyć od main'a swój branch, na którym mógł bez przeszkód wykonywać zadanie, po uznaniu go za spełniające kryteria, wystawiał pull request, lider robił review, gdzie decydował się na przyłączenie (bądź tez nie, wtedy zostawiał feedback 😉) do main'a. Merge conflicty również były rozwiązywane przez lidera. Po udanym merge lider odhaczał taska w plannerze.
 
 ![](images/clipboard-1210523945.png)
 
 # Wykonywanie projektu
 
-Sam projekt CalPM, został podzielony na części - przygotwanie skryptu, przygotowanie przepisów, przygotwanie i trenowanie modeli, sprawdzenie modeli na walidacyjnym zestawie danych i sporządzenie metryk i wykresów.
+Sam projekt CalPM, został podzielony na części - przygotowanie skryptu, przygotowanie przepisów, przygotowanie i trenowanie modeli, sprawdzenie modeli na rewalidacyjnym zestawie danych i sporządzenie metryk i wykresów.
 
 Kroki wykonywane przy wykonywaniu projektu, wszystko co mogło być robione równolegle jest napisane w jednym kroku.
 
@@ -115,7 +115,7 @@ xgboost_model <-
   [...]
 ```
 
-Wszystkie wytrenowane modele (na tym samym seedzie) były zapisywane do pliku, celem uniknięcia ponownego wykonywania czasochłonnych operacji. Zastosowano proste wyrażenie IF/ELSE którym można decydowac czy chcemy wykonac cały skrypt trenując modele od nowa
+Wszystkie wytrenowane modele (na tym samym seedzie) były zapisywane do pliku, celem uniknięcia ponownego wykonywania czasochłonnych operacji. Zastosowano proste wyrażenie IF/ELSE którym można decydować czy chcemy wykonać cały skrypt trenując modele od nowa
 
 ```{r}
 #| eval: false
@@ -146,10 +146,17 @@ if (xgboost_load_data) {
 
 -   Warto lepiej zgłębić temat przed planowaniem pracy - jako lider na początku nie za bardzo rozumiałem scope całego projektu, gdyby to poprawić można by lepiej zaplanować równoległą pracę w projekcie oraz poświęcić więcej czasu na dopracowanie modeli/zwiększenie liczebności.
 
--   Możliwe ustalenie wszystkich potrzebnych wspólnych konwencji - jaki seed, w jakiej formie każdy powinien przedstawić wydajnośc swojego modelu, jak nazywać zmienne, aby uniknąć chaosu (team poradził sobie z tym tematem bardzo dobrze, ale myślę że jako lider powinienem to poruszyć).
+-   Możliwe ustalenie wszystkich potrzebnych wspólnych konwencji - jaki seed, w jakiej formie każdy powinien przedstawić wydajność swojego modelu, jak nazywać zmienne, aby uniknąć chaosu (team poradził sobie z tym tematem bardzo dobrze, ale myślę że jako lider powinienem to poruszyć).
 
 -   Przekombinowanie plannera - w tak prostym projekcie nie potrzebne jest, aby każdy oznajmiał nad czym obecnie pracuje, a co ma już oddane, jest to projekt wykonywany w wolnym czasie. Metodologię pracy należy dobierać do potrzeb zespołu.
 
 # Wyniki projektu
 
-cdn.
+```{r}
+load(c("data_test.RData", "ops.RData", "data_test.RData","glm_data.RData", ))
+
+
+
+
+```
+
