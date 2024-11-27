@@ -7,7 +7,7 @@ required_packages <- c("tidyverse", "data.table", "dplyr",
                        "ggpubr", "ranger", "modeldata", "tidymodels",
                        "rpart.plot", "readr","vip", "ggthemes", 
                        "parsnip", "GGally", "skimr", "xgboost",
-                       "doParallel", "kernlab", "ggplot2")  
+                       "doParallel", "kernlab", "ggplot2", "openair")  
 
 # Function to run packages and install missing ones
 install_if_missing <- function(packages) {
@@ -1053,6 +1053,99 @@ ggplot(all_results, aes(x = date)) +
   ) +
   theme_minimal() +
   scale_color_manual(values = c("Actual" = "yellow", "Predicted" = "red"))
+
+
+# Final comparison charts ------------------------------------------------------
+
+# Scatter plots data 
+
+left_join(
+  all_results %>%
+    filter(model == "GLM") %>%
+    select(date, .pred, grimm_pm10) %>%
+    na.omit(),
+  ops_bam %>% select(date, ops_pm10),
+  by = "date"
+) %>%
+  select(date, grimm_pm10, ops_pm10, .pred) %>%
+  rename('Calibration algorithm' = .pred,
+         'Correction factor' = ops_pm10) %>%
+  pivot_longer('Correction factor':'Calibration algorithm') -> to_p_glm
+
+left_join(
+  all_results %>%
+    filter(model == "XGBoost") %>%
+    select(date, .pred, grimm_pm10) %>%
+    na.omit(),
+  ops_bam %>% select(date, ops_pm10),
+  by = "date"
+) %>%
+  select(date, grimm_pm10, ops_pm10, .pred) %>%
+  rename('Calibration algorithm' = .pred,
+         'Correction factor' = ops_pm10) %>%
+  pivot_longer('Correction factor':'Calibration algorithm') -> to_p_xboost
+
+# Scatter plots creation
+
+to_p_glm %>% 
+  timeAverage(avg.time = "day", 
+              type = "name") %>% 
+  filter(value < 150) %>% 
+  ggplot(aes(grimm_pm10, value)) +
+  geom_point() +
+  facet_wrap(~name) + 
+  geom_abline(slope = c(1.5, 0.5, 1),
+              col = rep(c("blue", "blue",
+                          "red"),
+                        2)) +
+  theme_bw() +
+  scale_x_continuous(limits = c(0,60), expand = c(0,0)) + 
+  scale_y_continuous(limits = c(0,60), expand = c(0,0)) +
+  coord_obs_pred() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(
+    x =  expression("Concentration PM"[10] *
+                      " [" * mu * "g m" ^ -3 * "] - BAM-1020") ,
+    y = expression("Concentration PM"[10] *
+                     " [" * mu * "g m" ^ -3 * "] - OPS 3330")
+  ) -> p_glm ; p_glm
+
+to_p_xboost %>% 
+  timeAverage(avg.time = "day", 
+              type = "name") %>% 
+  filter(value < 150) %>% 
+  ggplot(aes(grimm_pm10, value)) +
+  geom_point() +
+  facet_wrap(~name) + 
+  geom_abline(slope = c(1.5, 0.5, 1),
+              col = rep(c("blue", "blue",
+                          "red"),
+                        2)) +
+  theme_bw() +
+  scale_x_continuous(limits = c(0,60), expand = c(0,0)) + 
+  scale_y_continuous(limits = c(0,60), expand = c(0,0)) +
+  coord_obs_pred() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(
+    x =  expression("Concentration PM"[10] *
+                      " [" * mu * "g m" ^ -3 * "] - BAM-1020") ,
+    y = expression("Concentration PM"[10] *
+                     " [" * mu * "g m" ^ -3 * "] - OPS 3330")
+  ) -> p_xboost ; p_xboost
+
+# Time variation plots creation
+
+to_p_glm %>%
+  timeVariation(pollutant = "value",
+                group = "name", 
+                ylab ="Concentration PM10 [ug/m3]") -> p_tv_glm
+
+to_p_xboost %>%
+  timeVariation(pollutant = "value",
+                group = "name", 
+                ylab ="Concentration PM10 [ug/m3]") -> p_tv_xgboost
+
+# Other ------------------------------------------------------------------------
 
 # save(tidy_results,
 #      all_results,
