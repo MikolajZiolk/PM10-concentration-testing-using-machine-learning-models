@@ -41,7 +41,10 @@ execute:
 #| label: Pakiety
 pkg <- c(
   "ggthemes",
-  "ggplot2"
+  "ggplot2",
+  "tidyverse",
+  "openair",
+  "tune"
 )
 
 pkg |>
@@ -50,10 +53,35 @@ pkg |>
   )
 rm(pkg)
 #setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-load("./plot_data.RData")
+load("plot_data.RData")
+
+wind_set_dir <- function(kat) {
+  directions <- c("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", 
+                  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
+  index <- floor((kat + 11.25) / 22.5) %% 16 + 1
+  
+  directions[index]
+}
+
+#don't modify the ops file as this is our input we should always derive from
+load("ops.RData") ; ops <-
+  ops |>
+  na.omit() |> 
+  select(-ops_pm10, -pres_sea) |> #external requirement to never use ops_pm10
+  mutate(wd = wind_set_dir(wd))
+  
+#validation data (different measurement method)
+
+load("data_test.RData") ; ops_validation <- 
+  left_join(ops_data, bam, by = "date")|> 
+  select(!grimm_pm10, -(poj_h:hour)) |> 
+  relocate(bam_pm10, .before = "n_0044") |> 
+  rename(grimm_pm10 = bam_pm10) |> 
+  na.omit() |> 
+  mutate(wd = wind_set_dir(wd))
 ```
 
-## Organizacja pracy
+# Organizacja pracy
 
 Praca była wykonywana w przybliżeniu przebiegała następującego według diagramu blokowego:
 
@@ -68,6 +96,8 @@ Np. przy starcie projektu należało stworzyć pierwszy plik, w którym zostaną
 **Praca w jednym pliku** - celem ćwiczenia, aby lepiej widzieć postępujący kod pisany przez innych i stworzenie merge konfliktów zdecydowano się na pracę w jednym pliku R. Wraz z rozwojem projektu, plik osiągnął 1000+ linijek, co robi się ciężkie do nawigowania po nim.
 
 **Praca z gitem -** po wyznaczeniu tasków, każdy mógł stworzyć od main'a swój branch, na którym mógł bez przeszkód wykonywać zadanie, po uznaniu go za spełniające kryteria, wystawiał pull request, lider robił review, gdzie decydował się na przyłączenie (bądź tez nie, wtedy zostawiał feedback 😉) do main'a. Merge conflicty również były rozwiązywane przez lidera. Po udanym merge lider odhaczał taska w plannerze.
+
+![](images/clipboard-503873801.png)
 
 ![](images/clipboard-1210523945.png)
 
@@ -148,15 +178,110 @@ if (xgboost_load_data) {
 
 -   Możliwe ustalenie wszystkich potrzebnych wspólnych konwencji - jaki seed, w jakiej formie każdy powinien przedstawić wydajność swojego modelu, jak nazywać zmienne, aby uniknąć chaosu (team poradził sobie z tym tematem bardzo dobrze, ale myślę że jako lider powinienem to poruszyć).
 
--   Przekombinowanie plannera - w tak prostym projekcie nie potrzebne jest, aby każdy oznajmiał nad czym obecnie pracuje, a co ma już oddane, jest to projekt wykonywany w wolnym czasie. Metodologię pracy należy dobierać do potrzeb zespołu.
+-   Przekombinowanie plannera - w tak prostym projekcie nie potrzebne jest, aby każdy oznajmiał nad czym obecnie pracuje, a co ma już oddane. Jest to przecież projekt wykonywany w wolnym czasie. Metodologię pracy należy dobierać do potrzeb zespołu.
 
 # Wyniki projektu
 
+Finalnie stworzono 4 modele, których finalne, najlepsze wytrenowane wersje prezentują następujące parametry wydajności oraz odwzorowanie predykcyji na wykresie:
+
 ```{r}
-load(c("data_test.RData", "ops.RData", "data_test.RData","glm_data.RData", ))
+#| echo: false
+final_metrics
+```
 
+Wyjaśnienie przepisów:
 
+-   **GLM** - przepis utworzony specjalnie dla modelu liniowego (przy użyciu metody hellwiga)
 
+-   **HLWG** - przepis w którym metody zostały dobrane przy użyciu metody hellwiga
+
+-   **Upgraded** - przepis utworzony poprzez ręczne badanie korelacji predyktorów i sprawdzanie wagi predyktorów w wytrenowanym modelu.
+
+```{r}
+#| echo: false
+ggplot(all_results, aes(x = date)) +
+  geom_line(aes(y = grimm_pm10, color = "Actual"), size = 1) +
+  geom_line(aes(y = .pred, color = "Predicted"), size=0.5) +
+  facet_wrap(~ model, scales = "free_y") +
+  labs(
+    title = "Comparison of Actual and Predicted Values",
+    x = "Date",
+    y = "PM10 Concentration",
+    color = "Values"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0, 75)) +
+  scale_color_manual(values = c("Actual" = "green", "Predicted" = "red"))
+```
+
+Co prawda najlepszy parametr R^2^ osiąga model GLM, jednak o wiele lepsze parametry RMSE oraz MAE osiągnał model XGBoost, wygląda się też byc lepiej dopasowany na do oryginalnej krzywej, porównując te dwa modele na bardziej szczegółowym wykresie, można zauważyć więcej:
+
+```{r}
+#| echo: false
+left_join(
+  all_results %>%
+    filter(model == "GLM") %>%
+    select(date, .pred, grimm_pm10) %>%
+    na.omit(),
+  ops_bam %>% select(date, ops_pm10),
+  by = "date"
+) %>%
+  select(date, grimm_pm10, ops_pm10, .pred) %>%
+  rename('Calibration algorithm' = .pred,
+         'Correction factor' = ops_pm10) %>%
+  pivot_longer('Correction factor':'Calibration algorithm') -> to_p_glm
+
+left_join(
+  all_results %>%
+    filter(model == "XGBoost") %>%
+    select(date, .pred, grimm_pm10) %>%
+    na.omit(),
+  ops_bam %>% select(date, ops_pm10),
+  by = "date"
+) %>%
+  select(date, grimm_pm10, ops_pm10, .pred) %>%
+  rename('Calibration algorithm' = .pred,
+         'Correction factor' = ops_pm10) %>%
+  pivot_longer('Correction factor':'Calibration algorithm') -> to_p_xboost
+
+to_p_glm %>%
+  timeVariation(pollutant = "value",
+                group = "name", 
+                ylab ="Concentration PM10 [ug/m3]",
+                main = "GLM") -> p_tv_glm
+
+to_p_xboost %>%
+  timeVariation(pollutant = "value",
+                group = "name", 
+                ylab ="Concentration PM10 [ug/m3]",
+                main = "XGBoost") -> p_tv_xgboost
 
 ```
 
+Porównując obydwa wykresy widzimy, że chociaż faktycznie GLM predyktujema wartośc bliższą właściwej, to XGBoost generuje prawie identyczny kształt krzywej, tylko liniowo przesuniętej. Ten powód kategoryzuje XGBoost jako lepszy model.
+
+```{r}
+#| echo: false
+to_p_xboost %>% 
+  timeAverage(avg.time = "day", 
+              type = "name") %>% 
+  filter(value < 150) %>% 
+  ggplot(aes(grimm_pm10, value)) +
+  geom_point() +
+  facet_wrap(~name) + 
+  geom_abline(slope = c(1.5, 0.5, 1),
+              col = rep(c("blue", "blue",
+                          "red"),
+                        2)) +
+  theme_bw() +
+  scale_x_continuous(limits = c(0,60), expand = c(0,0)) + 
+  scale_y_continuous(limits = c(0,60), expand = c(0,0)) +
+  coord_obs_pred() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(
+    x =  expression("Concentration PM"[10] *
+                      " [" * mu * "g m" ^ -3 * "] - BAM-1020") ,
+    y = expression("Concentration PM"[10] *
+                     " [" * mu * "g m" ^ -3 * "] - OPS 3330")
+  )
+```
