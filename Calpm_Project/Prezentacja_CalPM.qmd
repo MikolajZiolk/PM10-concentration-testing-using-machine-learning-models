@@ -1,6 +1,6 @@
 ---
-title: "Prezentacja_CalPM"
-author: "Team2"
+title: "Prezentacja projektu CalPM"
+author: "J.Naporowski, J.Anczyk, M.Ziółkowski, H.Kolano"
 abstract-title: "Temat"
 abstract: "Zaprezentowanie przebiegu pracy i wyników projektu CalPM"
 format: 
@@ -9,7 +9,7 @@ format:
     toc-depth: 3
     toc-location: right
     toc-title: Spis Treści
-    number-sections: true
+    number-sections: false
     number-depth: 3
     embed-resources: true
     html-math-method: katex
@@ -86,11 +86,11 @@ load("data_test.RData") ; ops_validation <-
   mutate(wd = wind_set_dir(wd))
 ```
 
+# Główny cel projektu
+
+W ramach projektu nalażało przewidzieć stężenie PM10 za pomocą modeli machine learning'u na podstawie gotowych danych pomiarowych. Następnie sprawdzić jak zachowują się przez nas zbudowane i wyoptymalizowane modele, kiedy poda się im do przewidzenie dane z pomiarów zbranych w innym miejscu i o innej porze roku.
+
 # Organizacja pracy
-
-Praca była wykonywana w przybliżeniu przebiegała następującego według diagramu blokowego:
-
-![Diagram blokowy przedstawiający workflow](images/mindmap_calpm.png)
 
 Praca rozpoczynała się zawsze od spotkania, omówienia wspólnie obecnego stanu projektu/celu, wyznaczeniu zadań na następny tydzień i zapisaniu ich w Plannerze (appka teams):![Wygląd tablicy pod koniec projektu](images/clipboard-1910004781.png){width="1300"}
 
@@ -100,15 +100,17 @@ Np. przy starcie projektu należało stworzyć pierwszy plik, w którym zostaną
 
 **Praca w jednym pliku** - celem ćwiczenia, aby lepiej widzieć postępujący kod pisany przez innych i stworzenie merge konfliktów zdecydowano się na pracę w jednym pliku R. Wraz z rozwojem projektu, plik osiągnął 1000+ linijek, co robi się ciężkie do nawigowania po nim.
 
-**Praca z gitem -** po wyznaczeniu tasków, każdy mógł stworzyć od main'a swój branch, na którym mógł bez przeszkód wykonywać zadanie, po uznaniu go za spełniające kryteria, wystawiał pull request, lider robił review, gdzie decydował się na przyłączenie (bądź tez nie, wtedy zostawiał feedback 😉) do main'a. Merge conflicty również były rozwiązywane przez lidera. Po udanym merge lider odhaczał taska w plannerze.
+**Praca z gitem -** po wyznaczeniu tasków, każdy mógł stworzyć od main'a swój branch, na którym mógł bez przeszkód wykonywać zadanie, po uznaniu go za spełniające kryteria, wystawiał pull request. Lider robił review, gdzie decydował się na przyłączenie (bądź tez nie, wtedy zostawiał feedback 😉) do main'a. Merge conflicty również były rozwiązywane przez lidera. Po udanym merge lider odhaczał taska w plannerze.
 
 ![](images/clipboard-503873801.png)
-
-![](images/clipboard-1210523945.png)
 
 # Wykonywanie projektu
 
 Sam projekt CalPM, został podzielony na części - przygotowanie skryptu, przygotowanie przepisów, przygotowanie i trenowanie modeli, sprawdzenie modeli na rewalidacyjnym zestawie danych i sporządzenie metryk i wykresów.
+
+Praca w przybliżeniu przebiegała według diagramu blokowego:
+
+![Diagram blokowy przedstawiający workflow](images/mindmap_calpm.png){alt="Diagram blokowy przedstawiający workflow"}
 
 Kroki wykonywane przy wykonywaniu projektu, wszystko co mogło być robione równolegle jest napisane w jednym kroku.
 
@@ -187,7 +189,7 @@ if (xgboost_load_data) {
 
 # Wyniki projektu
 
-Finalnie stworzono 4 modele, których finalne, najlepsze wytrenowane wersje prezentują następujące parametry wydajności oraz odwzorowanie predykcyji na wykresie:
+Finalnie stworzono 4 modele, których finalne, najlepsze wytrenowane wersje prezentują następujące parametry wydajności przy przewidywaniu drugiego zestawu danych:
 
 ```{r}
 #| echo: false
