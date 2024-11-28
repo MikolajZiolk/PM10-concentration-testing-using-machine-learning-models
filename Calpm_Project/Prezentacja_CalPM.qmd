@@ -28,6 +28,11 @@ format:
     fontsize: 1.0em
     linestretch: 1.3
     fig-align: center
+    fig-width: 8        
+    fig-height: 7         
+    fig-asp: 0.75          
+    fig-fullwidth: true     
+    fig-retina: 2           
 execute: 
   echo: true
   error: false
