@@ -1,6 +1,6 @@
 ---
 title: "Prezentacja projektu CalPM"
-author: "J.Naporowski, J.Anczyk, M.Ziółkowski, H.Kolano"
+author: "Team nr2"
 abstract-title: "Temat"
 abstract: "Zaprezentowanie przebiegu pracy i wyników projektu CalPM"
 format: 
@@ -110,7 +110,7 @@ Sam projekt CalPM, został podzielony na części - przygotowanie skryptu, przyg
 
 Praca w przybliżeniu przebiegała według diagramu blokowego:
 
-![Diagram blokowy przedstawiający workflow](images/mindmap_calpm.png){alt="Diagram blokowy przedstawiający workflow"}
+![Diagram blokowy przedstawiający workflow](images/mindmap_calpm.png)
 
 Kroki wykonywane przy wykonywaniu projektu, wszystko co mogło być robione równolegle jest napisane w jednym kroku.
 
@@ -193,14 +193,16 @@ Finalnie stworzono 4 modele, których finalne, najlepsze wytrenowane wersje prez
 
 ```{r}
 #| echo: false
-final_metrics
+final_metrics |>
+  select(model, recipe, everything()) |> 
+  knitr::kable()
 ```
 
 Wyjaśnienie przepisów:
 
 -   **GLM** - przepis utworzony specjalnie dla modelu liniowego (przy użyciu metody hellwiga)
 
--   **HLWG** - przepis w którym metody zostały dobrane przy użyciu metody hellwiga
+-   **HLWG** - przepis w którym predyktory zostały dobrane przy użyciu metody hellwiga
 
 -   **Upgraded** - przepis utworzony poprzez ręczne badanie korelacji predyktorów i sprawdzanie wagi predyktorów w wytrenowanym modelu.
 
@@ -286,6 +288,7 @@ to_p_xboost %>%
   coord_obs_pred() +
   theme(plot.title = element_text(hjust = 0.5)) +
   labs(
+    title = "XGBoost",
     x =  expression("Concentration PM"[10] *
                       " [" * mu * "g m" ^ -3 * "] - BAM-1020") ,
     y = expression("Concentration PM"[10] *
