@@ -1,1 +1,1 @@
-MRZ: tu proszę zrobić krótki opis - co to za repo i do czego służy
+Projekt zaliczeniowy na kurs "Zdalne repozytoria i systemy kontroli wersji w projektach uczenia maszynowego", w którym przewidujemy stężenie PM10 w powietrzu za pomocą języka R i technologi machine learning'u.
